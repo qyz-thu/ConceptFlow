@@ -5,7 +5,7 @@ symbols: 30000
 units: 512
 layers: 2
 batch_size: 5
-data_dir: "data"
+data_dir: "../ConceptFlow/data/data"
 num_epoch: 20
 lr_rate: 0.0001
 lstm_dropout: 0.3

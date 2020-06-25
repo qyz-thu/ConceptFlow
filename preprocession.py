@@ -22,11 +22,11 @@ def prepare_data(config):
     if config.is_train:
         with open('%s/trainset.txt' % config.data_dir) as f:
             for idx, line in enumerate(f):
-                if idx == 25: break
+                if idx == 99999: break
 
-                if idx % 100000 == 0: print('read train file line %d' % idx)
+                if idx % 100000 == 0:
+                    print('read train file line %d' % idx)
                 data_train.append(json.loads(line))
-
     
     with open('%s/testset.txt' % config.data_dir) as f:
         for line in f:
@@ -34,13 +34,14 @@ def prepare_data(config):
     
     return raw_vocab, data_train, data_test
 
+
 def build_vocab(path, raw_vocab, config, trans='transE'):
 
     print("Creating word vocabulary...")
-    vocab_list = ['_PAD','_GO', '_EOS', '_UNK', ] + sorted(raw_vocab, key=raw_vocab.get, reverse=True)
+    vocab_list = ['_PAD', '_GO', '_EOS', '_UNK', ] + sorted(raw_vocab, key=raw_vocab.get, reverse=True)
     if len(vocab_list) > config.symbols:
         vocab_list = vocab_list[:config.symbols]
-    
+
     print("Creating entity vocabulary...")
     entity_list = ['_NONE', '_PAD_H', '_PAD_R', '_PAD_T', '_NAF_H', '_NAF_R', '_NAF_T'] 
     with open('%s/entity.txt' % path) as f:
@@ -104,11 +105,11 @@ def build_vocab(path, raw_vocab, config, trans='transE'):
 
     return word2id, entity2id, vocab_list, embed, entity_list, entity_embed, relation_list, relation_embed, entity_relation_embed
 
+
 def gen_batched_data(data, config, word2id, entity2id): 
     global csk_entities, csk_triples, kb_dict, dict_csk_entities, dict_csk_triples
 
-    encoder_len = max([len(item['post']) for item in data])+1  
-
+    encoder_len = max([len(item['post']) for item in data])+1
     decoder_len = max([len(item['response']) for item in data])+1
     triple_num = max([len(item['all_triples_one_hop']) for item in data])
     entity_len = max([len(item['all_entities_one_hop']) + max(item['post_triples']) for item in data])
