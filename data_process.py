@@ -68,22 +68,22 @@ def process_train():
         adj_table[id1].append(id2)
         adj_table[id2].append(id1)
 
-    f_w = open(data_dir + 'trainset4bs.txt', 'w')
+    f_w = open(data_dir + '_trainset4bs.txt', 'w')
     with open(data_dir + 'trainset.txt') as f:
         for i, line in enumerate(f):
             if i % 1000 == 0:
                 print('processed %d samples' % i)
-            if i > 99999:
+            if i > 999:
                 break
             data = json.loads(line)
             post_ent = list()
-            response_ent = list()
+            response_ent = [-1 for i in range(len(data['response']))]
             for i in range(len(data['post_triples'])):
                 if data['post_triples'][i] > 0 and data['post'][i] in entity2id:
                     post_ent.append(entity2id[data['post'][i]])
-            for w in data['response']:
+            for i, w in enumerate(data['response']):
                 if w in entity2id:
-                    response_ent.append(entity2id[w])
+                    response_ent[i] = entity2id[w]
             path = get_path(post_ent, response_ent)
             # subgraph consists of zero-hop entities and entities from all shortest path for every golden entities
             subgraph = set(post_ent)
@@ -110,13 +110,13 @@ def process_test():
         for line in f:
             data = json.loads(line)
             post_ent = list()
-            response_ent = list()
+            response_ent = [-1 for i in range(len(data['response']))]
             for i in range(len(data['post_triples'])):
                 if data['post_triples'][i] > 0 and data['post'][i] in entity2id:
                     post_ent.append(entity2id[data['post'][i]])
-            for w in data['response']:
+            for i, w in enumerate(data['response']):
                 if w in entity2id:
-                    response_ent.append(entity2id[w])
+                    response_ent[i] = entity2id[w]
             n_data = {'post': data['post'], 'response': data['response'], 'post_ent': post_ent, 'response_ent': response_ent}
             f_w.write(json.dumps(n_data) + '\n')
 
@@ -130,7 +130,7 @@ def main():
             e = line.strip()
             entity2id[e] = len(entity_list)
             entity_list.append(e)
-    process_test()
+    process_train()
 
 
 main()

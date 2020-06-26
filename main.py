@@ -7,6 +7,7 @@ import torch
 import warnings
 import yaml
 import os
+import pynvml
 warnings.filterwarnings('ignore')
 
 csk_triples, csk_entities, kb_dict = [], [], []
@@ -49,15 +50,16 @@ class Config():
         
 
 def run(model, data_train, config, word2id, entity2id, is_inference=False):
-    batched_data = gen_batched_data(data_train, config, word2id, entity2id)
+    batched_data = gen_batched_data(data_train, config, word2id, entity2id, is_inference)
     
-    if model.is_inference == True:
+    if is_inference == True:
         decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, sentence_ppx_only_two, word_index, word_neg_num, \
             local_neg_num, only_two_neg_num, selector = model(batched_data)
         return decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, sentence_ppx_only_two, word_index, word_neg_num, local_neg_num, only_two_neg_num, selector
     else:
-        decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, sentence_ppx_only_two, word_neg_num, local_neg_num, only_two_neg_num = model(batched_data)
-        return decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, sentence_ppx_only_two, word_neg_num, local_neg_num, only_two_neg_num
+        # decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, sentence_ppx_only_two, word_neg_num, local_neg_num, only_two_neg_num = model(batched_data)
+        # return decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, sentence_ppx_only_two, word_neg_num, local_neg_num, only_two_neg_num
+        return model(batched_data)
 
 
 def train(config, model, data_train, data_test, word2id, entity2id, model_optimizer):
@@ -74,17 +76,17 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
 
         count = 0
         for iteration in range(len(data_train) // config.batch_size):
-            decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, sentence_ppx_only_two, word_neg_num, local_neg_num, \
-                only_two_neg_num = run(model, data_train[(iteration * config.batch_size):(iteration * \
-                config.batch_size + config.batch_size)], config, word2id, entity2id)
-            sentence_ppx_loss += torch.sum(sentence_ppx).data
-            sentence_ppx_word_loss += torch.sum(sentence_ppx_word).data
-            sentence_ppx_local_loss += torch.sum(sentence_ppx_local).data
-            sentence_ppx_only_two_loss += torch.sum(sentence_ppx_only_two).data
+            # decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, sentence_ppx_only_two, word_neg_num, local_neg_num, only_two_neg_num \
+            decoder_loss = run(model, data_train[(iteration * config.batch_size):(iteration * config.batch_size + config.batch_size)],
+                      config, word2id, entity2id)
+            # sentence_ppx_loss += torch.sum(sentence_ppx).data
+            # sentence_ppx_word_loss += torch.sum(sentence_ppx_word).data
+            # sentence_ppx_local_loss += torch.sum(sentence_ppx_local).data
+            # sentence_ppx_only_two_loss += torch.sum(sentence_ppx_only_two).data
 
-            word_cut += word_neg_num
-            local_cut += local_neg_num
-            only_two_cut += only_two_neg_num
+            # word_cut += word_neg_num
+            # local_cut += local_neg_num
+            # only_two_cut += only_two_neg_num
 
             model_optimizer.zero_grad()
             decoder_loss.backward()
@@ -99,6 +101,7 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
             np.exp(sentence_ppx_word_loss.cpu() / (len(data_train) - int(word_cut))), " ppx_local: ", \
             np.exp(sentence_ppx_local_loss.cpu() / (len(data_train) - int(local_cut))), " ppx_only_two: ", \
             np.exp(sentence_ppx_only_two_loss.cpu() / (len(data_train) - int(only_two_cut))))
+
         torch.save(model.state_dict(), config.model_save_name + '_epoch_' + str(epoch + 1) + '.pkl')
         ppx, ppx_word, ppx_local, ppx_only_two = evaluate(model, data_test, config, word2id, entity2id, epoch + 1)
         ppx_f = open(config.result_dir_name,'a')
@@ -107,7 +110,7 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
         ppx_f.close()
 
 
-def evaluate(model, data_test, config, word2id, entity2id, epoch = 0, is_test = False, model_path = None):
+def evaluate(model, data_test, config, word2id, entity2id, epoch, is_test=False, model_path=None):
     if model_path:
         model.load_state_dict(torch.load(model_path))
     sentence_ppx_loss = 0
@@ -186,11 +189,29 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch = 0, is_test = 
 
 
 def main():
-    os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+    # choose gpu with sufficient memory
+    pynvml.nvmlInit()
+    device_index = -1
+    device_count = pynvml.nvmlDeviceGetCount()
+    max_space = 0
+    for i in range(device_count):
+        if i == 1:
+            continue
+        handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+        info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        if info.free > max_space:
+            max_space = info.free
+            device_index = i
+    if max_space < 5e9:
+        print("no gpu with sufficient memory currently.")
+        sys.exit(0)
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(device_index)
+
     config = Config('config.yml')
     config.list_all_member()
     raw_vocab, data_train, data_test = prepare_data(config)
-    word2id, entity2id, vocab, embed, entity_vocab, entity_embed, relation_vocab, relation_embed, entity_relation_embed = build_vocab(config.data_dir, raw_vocab, config=config)
+    word2id, entity2id, vocab, embed, entity_vocab, entity_embed, relation_vocab, relation_embed, entity_relation_embed \
+        = build_vocab(config.data_dir, raw_vocab, config=config)
     model = use_cuda(ConceptFlow(config, embed, entity_relation_embed))
 
     model_optimizer = torch.optim.Adam(model.parameters(), lr=config.lr_rate)
