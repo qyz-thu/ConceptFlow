@@ -1,6 +1,7 @@
 import json
 
 adj_table = dict()
+data_dir = "../ConceptFlow/data/data/"
 
 
 def get_path(post_ent, res_ent):
@@ -47,61 +48,89 @@ def get_path(post_ent, res_ent):
     return path
 
 
-# # test
-# adj_table = {1: [2, 3, 4, 8], 2: [1, 5, 6], 3: [1, 7], 4: [1], 5: [2, 6, 8], 6: [2, 7, 8], 7: [3, 6], 8: [1, 5, 6]}
-# path = get_path([1], [6])
-# pass
+def process_train():
+    with open(data_dir + 'resource.txt') as f:
+        d = json.loads(f.readline())
+    csk_triples = d['csk_triples']
+    id2entity = d['csk_entities']
 
-data_dir = "../ConceptFlow/data/data/"
-with open(data_dir + 'resource.txt') as f:
-    d = json.loads(f.readline())
-csk_triples = d['csk_triples']
-csk_entities = d['csk_entities']
-raw_vocab = d['vocab_dict']
-entity2id = d['dict_csk_entities']
+    # get adjacent table
+    for i in range(len(entity_list)):
+        adj_table[i] = list()
+    for triple in csk_triples:
+        t = triple.split(',')
+        sbj = t[0]
+        obj = t[2][1:]
+        if sbj not in entity_list or obj not in entity_list:
+            continue
+        id1 = entity2id[sbj]
+        id2 = entity2id[obj]
+        adj_table[id1].append(id2)
+        adj_table[id2].append(id1)
 
-# get adjacent table
-for i in range(len(csk_triples)):
-    adj_table[i] = list()
-for triple in csk_triples:
-    t = triple.split(',')
-    sbj = t[0]
-    obj = t[2][1:]
-    id1 = entity2id[sbj]
-    id2 = entity2id[obj]
-    adj_table[id1].append(id2)
-    adj_table[id2].append(id1)
+    f_w = open(data_dir + 'trainset4bs.txt', 'w')
+    with open(data_dir + 'trainset.txt') as f:
+        for i, line in enumerate(f):
+            if i % 1000 == 0:
+                print('processed %d samples' % i)
+            if i > 99999:
+                break
+            data = json.loads(line)
+            post_ent = list()
+            response_ent = list()
+            for i in range(len(data['post_triples'])):
+                if data['post_triples'][i] > 0 and data['post'][i] in entity2id:
+                    post_ent.append(entity2id[data['post'][i]])
+            for w in data['response']:
+                if w in entity2id:
+                    response_ent.append(entity2id[w])
+            path = get_path(post_ent, response_ent)
+            # subgraph consists of zero-hop entities and entities from all shortest path for every golden entities
+            subgraph = set(post_ent)
+            for p in path:
+                for pp in p:
+                    for e in pp:
+                        if id2entity[e] in entity_list:
+                            subgraph.add(e)
+            subgraph = list(subgraph)
+            edges = list()
+            for i in range(len(subgraph)):
+                for j in range(i + 1, len(subgraph)):
+                    if subgraph[j] in adj_table[subgraph[i]]:
+                        edges.append([subgraph[i], subgraph[j]])
+            n_data = {'post': data['post'], 'response': data['response'], 'post_ent': post_ent, 'response_ent': response_ent,
+                      'graph_nodes': subgraph, 'graph_edges': edges}
+            f_w.write(json.dumps(n_data) + '\n')
+    f_w.close()
 
-f_w = open(data_dir + 'trainset4bs.txt', 'w')
-with open(data_dir + 'trainset.txt') as f:
-    for i, line in enumerate(f):
-        if i % 1000 == 0:
-            print('processed %d samples' % i)
-        if i > 99999:
-            break
-        data = json.loads(line)
-        post_ent = list()
-        response_ent = list()
-        for i in range(len(data['post_triples'])):
-            if data['post_triples'][i] > 0:
-                post_ent.append(entity2id[data['post'][i]])
-        for w in data['response']:
-            if w in entity2id:
-                response_ent.append(entity2id[w])
-        path = get_path(post_ent, response_ent)
-        # subgraph consists of zero-hop entities and entities from all shortest path for every golden entities
-        subgraph = set(post_ent)
-        for p in path:
-            for pp in p:
-                for e in pp:
-                    subgraph.add(e)
-        subgraph = list(subgraph)
-        edges = list()
-        for i in range(len(subgraph)):
-            for j in range(i + 1, len(subgraph)):
-                if subgraph[j] in adj_table[subgraph[i]]:
-                    edges.append([subgraph[i], subgraph[j]])
-        n_data = {'post': data['post'], 'response': data['response'], 'post_ent': post_ent, 'response_ent': response_ent,
-                  'graph_nodes': subgraph, 'graph_edges': edges}
-        f_w.write(json.dumps(n_data) + '\n')
-f_w.close()
+
+def process_test():
+    f_w = open(data_dir + 'testset4bs.txt', 'w')
+    with open(data_dir + 'testset.txt') as f:
+        for line in f:
+            data = json.loads(line)
+            post_ent = list()
+            response_ent = list()
+            for i in range(len(data['post_triples'])):
+                if data['post_triples'][i] > 0 and data['post'][i] in entity2id:
+                    post_ent.append(entity2id[data['post'][i]])
+            for w in data['response']:
+                if w in entity2id:
+                    response_ent.append(entity2id[w])
+            n_data = {'post': data['post'], 'response': data['response'], 'post_ent': post_ent, 'response_ent': response_ent}
+            f_w.write(json.dumps(n_data) + '\n')
+
+
+def main():
+    global entity_list, entity2id
+    entity_list = ['_NONE', '_PAD_H', '_PAD_R', '_PAD_T', '_NAF_H', '_NAF_R', '_NAF_T']
+    entity2id = dict()
+    with open(data_dir + 'entity.txt') as f:
+        for i, line in enumerate(f):
+            e = line.strip()
+            entity2id[e] = len(entity_list)
+            entity_list.append(e)
+    process_test()
+
+
+main()
