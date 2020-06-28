@@ -1,4 +1,5 @@
 import json
+import time
 
 adj_table = dict()
 data_dir = "../ConceptFlow/data/data/"
@@ -68,11 +69,12 @@ def process_train():
         adj_table[id1].add(id2)
         adj_table[id2].add(id1)
 
+    start_time = time.time()
     f_w = open(data_dir + 'trainset4bs_full.txt', 'w')
     with open(data_dir + 'trainset.txt') as f:
         for i, line in enumerate(f):
             if i % 1000 == 0:
-                print('processed %d samples' % i)
+                print('processed %d samples, time used: %.2f' % (i, time.time() - start_time))
             # if i > 99999: break
             data = json.loads(line)
             post_ent = list()
