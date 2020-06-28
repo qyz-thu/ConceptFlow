@@ -17,7 +17,7 @@ def use_cuda(var):
 
 
 class ConceptFlow(nn.Module):
-    def __init__(self, config, word_embed, entity_embed):
+    def __init__(self, config, word_embed, entity_embed, adj_table):
         super(ConceptFlow, self).__init__()
         self.is_inference = False
         # Encoder
@@ -26,11 +26,13 @@ class ConceptFlow(nn.Module):
         self.trans_units = config.trans_units
         self.embed_units = config.embed_units
         self.units = config.units
-        #self.entity_dim = config.entity_dim
         self.layers = config.layers
         self.gnn_layers = config.gnn_layers
         self.symbols = config.symbols
+        self.bs_width = config.beam_search_width
+        self.max_hop = config.max_hop
 
+        self.adj_table = adj_table
         self.word_embedding = nn.Embedding(num_embeddings=word_embed.shape[0], embedding_dim=self.embed_units, padding_idx=0)
         self.word_embedding.weight = nn.Parameter(use_cuda(torch.Tensor(word_embed)))
         self.word_embedding.weight.requires_grad = True
@@ -43,10 +45,10 @@ class ConceptFlow(nn.Module):
         self.entity_embedding.weight.requires_grad = True
         self.entity_linear = nn.Linear(in_features=self.trans_units, out_features=self.trans_units)
 
-        self.lstm_drop = nn.Dropout(p=config.lstm_dropout)
-        self.linear_drop = nn.Dropout(p=config.linear_dropout)
+        # self.lstm_drop = nn.Dropout(p=config.lstm_dropout)
+        # self.linear_drop = nn.Dropout(p=config.linear_dropout)
 
-        self.node_encoder = nn.LSTM(input_size=self.embed_units, hidden_size=self.trans_units, batch_first=True, bidirectional=False)
+        # self.node_encoder = nn.LSTM(input_size=self.embed_units, hidden_size=self.trans_units, batch_first=True, bidirectional=False)
 
         self.softmax_d1 = nn.Softmax(dim=1)
         self.softmax_d2 = nn.Softmax(dim=2)
@@ -56,9 +58,9 @@ class ConceptFlow(nn.Module):
         self.decoder = nn.GRU(input_size=self.units + self.embed_units, hidden_size=self.units, num_layers=self.layers, batch_first=True)
 
         self.attn_c_linear = nn.Linear(in_features=self.units, out_features=self.units, bias=False)
-        self.attn_ce_linear = nn.Linear(in_features=self.trans_units, out_features=2 * self.units, bias=False)
-        self.attn_co_linear = nn.Linear(in_features=2 * self.trans_units, out_features=2 * self.units, bias=False)
-        self.attn_ct_linear = nn.Linear(in_features=self.trans_units, out_features=2 * self.units, bias=False)
+        # self.attn_ce_linear = nn.Linear(in_features=self.trans_units, out_features=2 * self.units, bias=False)
+        # self.attn_co_linear = nn.Linear(in_features=2 * self.trans_units, out_features=2 * self.units, bias=False)
+        # self.attn_ct_linear = nn.Linear(in_features=self.trans_units, out_features=2 * self.units, bias=False)
 
         self.context_linear = nn.Linear(in_features=2 * self.units + self.trans_units, out_features=self.units, bias=False)
 
@@ -66,38 +68,39 @@ class ConceptFlow(nn.Module):
         self.graph_attn_linear = nn.Linear(in_features=self.trans_units, out_features=self.units, bias=False)
 
         # create linear functions
-        self.k = 2 + 1
-        for i in range(self.gnn_layers):
-            self.add_module('q2e_linear' + str(i), nn.Linear(in_features=self.trans_units, out_features=self.trans_units))
-            self.add_module('d2e_linear' + str(i), nn.Linear(in_features=self.trans_units, out_features=self.trans_units))
-            self.add_module('e2q_linear' + str(i), nn.Linear(in_features=self.k * self.trans_units, out_features=self.trans_units))
-            self.add_module('e2d_linear' + str(i), nn.Linear(in_features=self.k * self.trans_units, out_features=self.trans_units))
-            self.add_module('e2e_linear' + str(i), nn.Linear(in_features=self.k * self.trans_units, out_features=self.trans_units))
-
-            #use kb
-            self.add_module('kb_head_linear' + str(i), nn.Linear(in_features=self.trans_units, out_features=self.trans_units))
-            self.add_module('kb_tail_linear' + str(i), nn.Linear(in_features=self.trans_units, out_features=self.trans_units))
-            self.add_module('kb_self_linear' + str(i), nn.Linear(in_features=self.trans_units, out_features=self.trans_units))
-
-        # one_two_triple
-        self.head_tail_linear = nn.Linear(in_features=self.trans_units * 2, out_features=self.trans_units)
-        self.one_two_entity_linear = nn.Linear(in_features=self.trans_units, out_features=self.trans_units)
+        # self.k = 2 + 1
+        # for i in range(self.gnn_layers):
+        #     self.add_module('q2e_linear' + str(i), nn.Linear(in_features=self.trans_units, out_features=self.trans_units))
+        #     self.add_module('d2e_linear' + str(i), nn.Linear(in_features=self.trans_units, out_features=self.trans_units))
+        #     self.add_module('e2q_linear' + str(i), nn.Linear(in_features=self.k * self.trans_units, out_features=self.trans_units))
+        #     self.add_module('e2d_linear' + str(i), nn.Linear(in_features=self.k * self.trans_units, out_features=self.trans_units))
+        #     self.add_module('e2e_linear' + str(i), nn.Linear(in_features=self.k * self.trans_units, out_features=self.trans_units))
+        #
+        #     #use kb
+        #     self.add_module('kb_head_linear' + str(i), nn.Linear(in_features=self.trans_units, out_features=self.trans_units))
+        #     self.add_module('kb_tail_linear' + str(i), nn.Linear(in_features=self.trans_units, out_features=self.trans_units))
+        #     self.add_module('kb_self_linear' + str(i), nn.Linear(in_features=self.trans_units, out_features=self.trans_units))
+        #
+        # # one_two_triple
+        # self.head_tail_linear = nn.Linear(in_features=self.trans_units * 2, out_features=self.trans_units)
+        # self.one_two_entity_linear = nn.Linear(in_features=self.trans_units, out_features=self.trans_units)
 
         # Loss
         self.logits_linear = nn.Linear(in_features=self.units, out_features=self.symbols)
         self.selector_linear = nn.Linear(in_features=self.units, out_features=2)
 
     def forward(self, batch_data):
-        query_text = batch_data['query_text']
+        query_text = batch_data['post_text']    # todo: rename query_text to post_text
         response_text = batch_data['response_text']
-        # local_entity = batch_data['local_entity']
         responses_length = batch_data['responses_length']
-        # q2e_adj_mat = batch_data['q2e_adj_mat']
+        post_ent = batch_data['post_ent']
+        response_ent = batch_data['response_ent']
         subgraph = batch_data['subgraph']
         subgraph_len = batch_data['subgraph_size']
+        match_entity = batch_data['match_entity']
+        # q2e_adj_mat = batch_data['q2e_adj_mat']
         # kb_adj_mat = batch_data['kb_adj_mat']
         # kb_fact_rel = batch_data['kb_fact_rel']
-        match_entity = batch_data['match_entity']
         # only_two_entity = batch_data['only_two_entity']
         # match_entity_only_two = batch_data['match_entity_only_two']
         # one_two_triples_id = batch_data['one_two_triples_id']
@@ -113,7 +116,13 @@ class ConceptFlow(nn.Module):
         else:
             id2entity = None
 
-        batch_size, max_graph_size = subgraph.shape
+        if not self.is_inference:
+            max_graph_size = subgraph.shape[1]
+            subgraph = use_cuda(Variable(torch.from_numpy(subgraph).type('torch.LongTensor'), requires_grad=False))  # todo: remove Variable?
+            match_entity = use_cuda(Variable(torch.from_numpy(match_entity).type('torch.LongTensor'), requires_grad=False))
+            subgraph_emb = self.entity_linear(self.entity_embedding(subgraph))
+
+        batch_size = query_text.shape[0]
         # _, max_only_two_entity = only_two_entity.shape
         # _, one_two_triple_num, one_two_triple_len, _ = one_two_triples_id.shape
         # _, max_fact = kb_fact_rel.shape
@@ -122,12 +131,10 @@ class ConceptFlow(nn.Module):
         # local_entity = use_cuda(Variable(torch.from_numpy(local_entity).type('torch.LongTensor'), requires_grad=False))
         # local_entity_mask = use_cuda((local_entity != 0).type('torch.FloatTensor'))
         # kb_fact_rel = use_cuda(Variable(torch.from_numpy(kb_fact_rel).type('torch.LongTensor'), requires_grad=False))
-        subgraph = use_cuda(Variable(torch.from_numpy(subgraph).type('torch.LongTensor'), requires_grad=False))     # todo: remove Variable?
         query_text = use_cuda(Variable(torch.from_numpy(query_text).type('torch.LongTensor'), requires_grad=False))
         response_text = use_cuda(Variable(torch.from_numpy(response_text).type('torch.LongTensor'), requires_grad=False))
         responses_length = use_cuda(Variable(torch.Tensor(responses_length).type('torch.LongTensor'), requires_grad=False))
         query_mask = use_cuda((query_text != 0).type('torch.FloatTensor'))
-        match_entity = use_cuda(Variable(torch.from_numpy(match_entity).type('torch.LongTensor'), requires_grad=False))
         # only_two_entity = use_cuda(Variable(torch.from_numpy(only_two_entity).type('torch.LongTensor'), requires_grad=False))
         # match_entity_only_two = use_cuda(Variable(torch.from_numpy(match_entity_only_two).type('torch.LongTensor'), requires_grad=False))
         # one_two_triples_id = use_cuda(Variable(torch.from_numpy(one_two_triples_id).type('torch.LongTensor'), requires_grad=False))
@@ -138,10 +145,8 @@ class ConceptFlow(nn.Module):
         # assert pagerank_f.requires_grad == True
 
         decoder_len = response_text.shape[1]
-        # encoder_len = query_text.shape[1]
         responses_target = response_text
         responses_id = torch.cat((use_cuda(torch.ones([batch_size, 1]).type('torch.LongTensor')),torch.split(response_text, [decoder_len - 1, 1], 1)[0]), 1)
-
         # encode query
         # query_word_emb = self.word_embedding(query_text)
         # query_hidden_emb, (query_node_emb, _) = self.node_encoder(self.lstm_drop(query_word_emb), self.init_hidden(1, batch_size, self.trans_units))
@@ -176,7 +181,6 @@ class ConceptFlow(nn.Module):
 
         # subgraph embedding
         # subgraph_emb = self.entity_embedding(subgraph)
-        subgraph_emb = self.entity_linear(self.entity_embedding(subgraph))
 
         # label propagation on entities
         # for i in range(self.gnn_layers):
@@ -250,17 +254,10 @@ class ConceptFlow(nn.Module):
         # ct_attention_keys, ct_attention_values = torch.split(self.attn_ct_linear(only_two_entity_embed), [self.units, self.units], 2)
 
         # ce_attention_keys, ce_attention_values, co_attention_keys, co_attention_values, ct_attention_keys = None, None, None, None, None
-        ce_attention_keys = self.graph_attn_linear(subgraph_emb)
-        ce_attention_values = subgraph_emb
-        decoder_state = text_encoder_state
 
+        decoder_state = text_encoder_state
         decoder_output = use_cuda(torch.empty(0))
         ce_alignments = use_cuda(torch.empty(0))
-
-        graph_mask = np.zeros([batch_size, subgraph.shape[1]])
-        for i in range(batch_size):
-            graph_mask[i][0: subgraph_len[i]] = 1
-        graph_mask = use_cuda(torch.from_numpy(graph_mask).type('torch.LongTensor'))
 
         # only_two_entity_mask = np.zeros([batch_size, only_two_entity.shape[1]])
         # for i in range(batch_size):
@@ -268,35 +265,55 @@ class ConceptFlow(nn.Module):
         # only_two_entity_mask = use_cuda(torch.from_numpy(only_two_entity_mask).type('torch.LongTensor'))
 
         context = use_cuda(torch.zeros([batch_size, self.units]))
-        for t in range(decoder_len):
-            decoder_input_t = torch.cat((decoder_input[:,t,:], context), 1).unsqueeze(1)
-            decoder_output_t, decoder_state = self.decoder(decoder_input_t, decoder_state)
+        if not self.is_inference:   # train
+            graph_mask = np.zeros([batch_size, subgraph.shape[1]])
+            for i in range(batch_size):
+                graph_mask[i][0: subgraph_len[i]] = 1
+            graph_mask = use_cuda(torch.from_numpy(graph_mask).type('torch.LongTensor'))
 
-            context, ce_alignments_t = self.attention(c_attention_keys, c_attention_values, ce_attention_keys, ce_attention_values,
-                decoder_output_t.squeeze(1), graph_mask)
-            decoder_output_t = context.unsqueeze(1)
-            decoder_output = torch.cat((decoder_output, decoder_output_t), 1)
-            ce_alignments = torch.cat((ce_alignments, ce_alignments_t.unsqueeze(1)), 1)
+            ce_attention_keys = self.graph_attn_linear(subgraph_emb)
+            ce_attention_values = subgraph_emb
+            for t in range(decoder_len):
+                decoder_input_t = torch.cat((decoder_input[:,t,:], context), 1).unsqueeze(1)
+                decoder_output_t, decoder_state = self.decoder(decoder_input_t, decoder_state)
 
-        if self.is_inference == True:
+                context, ce_alignments_t = self.attention(c_attention_keys, c_attention_values, ce_attention_keys, ce_attention_values,
+                    decoder_output_t.squeeze(1), graph_mask)
+                decoder_output_t = context.unsqueeze(1)
+                decoder_output = torch.cat((decoder_output, decoder_output_t), 1)
+                ce_alignments = torch.cat((ce_alignments, ce_alignments_t.unsqueeze(1)), 1)
+
+        else:   # test
             word_index = use_cuda(torch.empty(0).type('torch.LongTensor'))
             decoder_input_t = self.word_embedding(use_cuda(torch.ones([batch_size]).type('torch.LongTensor')))
             context = use_cuda(torch.zeros([batch_size, self.units]))
-            decoder_state = text_encoder_state
+            # decoder_state = text_encoder_state
             selector = use_cuda(torch.empty(0).type('torch.LongTensor'))
+
+            current_graph = post_ent
+            outer = [[[n] for n in g] for g in post_ent]
 
             for t in range(decoder_len):
                 decoder_input_t = torch.cat((decoder_input_t, context), 1).unsqueeze(1)
                 decoder_output_t, decoder_state = self.decoder(decoder_input_t, decoder_state)
-                context, ce_alignments_t, co_alignments_t, ct_alignments_t = self.attention(c_attention_keys, c_attention_values, \
-                    ce_attention_keys, ce_attention_values, co_attention_keys, co_attention_values, ct_attention_keys, \
-                    decoder_output_t.squeeze(1), local_entity_mask, only_two_entity_mask)
+                # context, ce_alignments_t, co_alignments_t, ct_alignments_t = self.attention(c_attention_keys, c_attention_values, \
+                #     ce_attention_keys, ce_attention_values, co_attention_keys, co_attention_values, ct_attention_keys, \
+                #     decoder_output_t.squeeze(1), local_entity_mask, only_two_entity_mask)
+                if t < self.max_hop:
+                    ce_attention_keys, ce_attention_values, graph_mask = self.beam_search(decoder_output_t.squeeze(1), current_graph, outer)
+                context, ce_alignments_t = self.attention(c_attention_keys, c_attention_values, ce_attention_keys, ce_attention_values,
+                                                              decoder_output_t.squeeze(1), graph_mask)
                 decoder_output_t = context.unsqueeze(1)
 
-                decoder_input_t, word_index_t, selector_t = self.inference(decoder_output_t, ce_alignments_t, ct_alignments_t, word2id, \
-                    local_entity, only_two_entity, id2entity)
+                decoder_input_t, word_index_t, selector_t = self.inference(decoder_output_t, ce_alignments_t, word2id, current_graph, id2entity)
                 word_index = torch.cat((word_index, word_index_t.unsqueeze(1)), 1)
                 selector = torch.cat((selector, selector_t.unsqueeze(1)), 1)
+                if t > 0:
+                    padding_len = ce_alignments_t.shape[1] - ce_alignments.shape[2]
+                    ce_alignments = torch.cat((ce_alignments, use_cuda(torch.zeros([batch_size, t, padding_len]))), 2)
+                ce_alignments = torch.cat((ce_alignments, ce_alignments_t.unsqueeze(1)), 1)
+                decoder_output = torch.cat((decoder_output, decoder_output_t), 1)
+            max_graph_size = max([len(c) for c in current_graph])
 
         ### Total Loss
         decoder_mask = np.zeros([batch_size, decoder_len])
@@ -305,35 +322,45 @@ class ConceptFlow(nn.Module):
         decoder_mask = use_cuda(torch.from_numpy(decoder_mask).type('torch.LongTensor'))
 
         graph_entities = use_cuda(torch.zeros(batch_size, decoder_len, max_graph_size))
-        for b in range(batch_size):
-            for d in range(decoder_len):
-                if match_entity[b][d] != -1:
-                    graph_entities[b][d][match_entity[b][d]] = 1
+        if not self.is_inference:
+            for b in range(batch_size):
+                for d in range(decoder_len):
+                    if match_entity[b][d] != -1:
+                        graph_entities[b][d][match_entity[b][d]] = 1
+        else:
+            response_ent_num = 0
+            found_num = 0
+            for b in range(batch_size):
+                g2l = dict()
+                for i in range(len(current_graph[b])):
+                    if current_graph[b][i] > 0:
+                        g2l[current_graph[b][i]] = i
+                for d in range(decoder_len):
+                    if response_ent[b][d] == -1:
+                        continue
+                    response_ent_num += 1
+                    if response_ent[b][d] in g2l:
+                        graph_entities[b][d][g2l[response_ent[b][d]]] = 1
+                        found_num += 1
 
         use_entities_local = torch.sum(graph_entities, [2])
         #
         # one_hot_entities_only_two = use_cuda(torch.zeros(batch_size, decoder_len, max_only_two_entity))
-        # for b in range(batch_size):
-        #     for d in range(decoder_len):
-        #         if match_entity_only_two[b][d] == -1:
-        #             continue
-        #         else:
-        #             one_hot_entities_only_two[b][d][match_entity_only_two[b][d]] = 1
-        #
-        # use_entities_only_two = torch.sum(one_hot_entities_only_two, [2])
 
         # decoder_loss, ppx_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, sentence_ppx_only_two, \
         #     word_neg_num, local_neg_num, only_two_neg_num \
-        decoder_loss = self.total_loss(decoder_output, responses_target, decoder_mask, \
+        decoder_loss, sentence_ppx = self.total_loss(decoder_output, responses_target, decoder_mask, \
             ce_alignments, use_entities_local, graph_entities)
 
-        if self.is_inference == True:
-            return decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, sentence_ppx_only_two, \
-                word_index.cpu().numpy().tolist(), word_neg_num, local_neg_num, only_two_neg_num, selector.cpu().numpy().tolist()
+        # if self.is_inference == True:
+            # return decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, sentence_ppx_only_two, \
+            #     word_index.cpu().numpy().tolist(), word_neg_num, local_neg_num, only_two_neg_num, selector.cpu().numpy().tolist()
         # return decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, sentence_ppx_only_two, word_neg_num, local_neg_num, only_two_neg_num
-        return decoder_loss
+        if self.is_inference:
+            return decoder_loss, sentence_ppx, found_num / response_ent_num
+        return decoder_loss, sentence_ppx
 
-    def inference(self, decoder_output_t, ce_alignments_t, ct_alignments_t, word2id, local_entity, only_two_entity, id2entity):
+    def inference(self, decoder_output_t, ce_alignments_t, word2id, local_entity, id2entity):
         '''
         decoder_output_t: [batch_size, 1, self.units]
         ce_alignments_t: [batch_size, local_entity_len]
@@ -345,17 +372,17 @@ class ConceptFlow(nn.Module):
 
         selector = self.softmax_d1(self.selector_linear(decoder_output_t.squeeze(1)))
 
-        (word_prob, word_t) = torch.max(selector[:,0].unsqueeze(1) * self.softmax_d1(logits), dim=1)
-        (local_entity_prob, local_entity_l_index_t) = torch.max(selector[:,1].unsqueeze(1) * ce_alignments_t, dim=1)
-        (only_two_entity_prob, only_two_entity_l_index_t) = torch.max(selector[:,2].unsqueeze(1) * ct_alignments_t, dim=1)
+        (word_prob, word_t) = torch.max(selector[:, 0].unsqueeze(1) * self.softmax_d1(logits), dim=1)
+        (local_entity_prob, local_entity_l_index_t) = torch.max(selector[:, 1].unsqueeze(1) * ce_alignments_t, dim=1)
+        # (only_two_entity_prob, only_two_entity_l_index_t) = torch.max(selector[:,2].unsqueeze(1) * ct_alignments_t, dim=1)
 
         selector[:,0] = selector[:,0] * word_prob
         selector[:,1] = selector[:,1] * local_entity_prob
-        selector[:,2] = selector[:,2] * only_two_entity_prob
+        # selector[:,2] = selector[:,2] * only_two_entity_prob
         selector = torch.argmax(selector, dim=1)
 
         local_entity_l_index_t = local_entity_l_index_t.cpu().numpy().tolist()
-        only_two_entity_l_index_t = only_two_entity_l_index_t.cpu().numpy().tolist()
+        # only_two_entity_l_index_t = only_two_entity_l_index_t.cpu().numpy().tolist()
         word_t = word_t.cpu().numpy().tolist()
 
         word_local_entity_t = []
@@ -372,12 +399,12 @@ class ConceptFlow(nn.Module):
                     local_entity_text = '_UNK'
                 word_index_final_t.append(word2id[local_entity_text])
                 continue
-            if selector[i] == 2:
-                only_two_entity_index_t = int(only_two_entity[i][only_two_entity_l_index_t[i]])
-                only_two_entity_text = id2entity[only_two_entity_index_t]
-                if only_two_entity_text not in word2id:
-                    only_two_entity_text = '_UNK'
-                word_index_final_t.append(word2id[only_two_entity_text])
+            # if selector[i] == 2:
+            #     only_two_entity_index_t = int(only_two_entity[i][only_two_entity_l_index_t[i]])
+            #     only_two_entity_text = id2entity[only_two_entity_index_t]
+            #     if only_two_entity_text not in word2id:
+            #         only_two_entity_text = '_UNK'
+            #     word_index_final_t.append(word2id[only_two_entity_text])
                 continue
 
         word_index_final_t = use_cuda(torch.LongTensor(word_index_final_t))
@@ -444,37 +471,92 @@ class ConceptFlow(nn.Module):
         # return loss / total_size, 0, sentence_ppx / torch.sum(use_cuda(decoder_mask.type("torch.FloatTensor")), 1), \
         #     sentence_ppx_word / sum_word, sentence_ppx_local / sum_local, sentence_ppx_only_two / sum_only_two, word_neg_num, \
         #     local_neg_num, only_two_neg_num
-        return loss / total_size
+        return loss / total_size, sentence_ppx / torch.sum(use_cuda(decoder_mask.type("torch.FloatTensor")), 1)
 
     def attention(self, c_attention_keys, c_attention_values, ce_attention_keys, ce_attention_values, decoder_state, graph_mask):
         batch_size = c_attention_keys.shape[0]
-        # only_two_len = ct_attention_keys.shape[1]
 
         c_query = decoder_state.reshape([-1, 1, self.units])
         ce_query = decoder_state.reshape([-1, 1, self.units])
-        # co_query = decoder_state.reshape([-1, 1, self.units])
-        # ct_query = decoder_state.reshape([-1, 1, self.units])
 
         c_scores = torch.sum(c_attention_keys * c_query, 2)
         ce_scores = torch.sum(ce_attention_keys * ce_query, 2)
-        # co_scores = torch.sum(co_attention_keys * co_query, 2)
-        # ct_scores = torch.sum(ct_attention_keys * ct_query, 2)
 
         c_alignments = self.softmax_d1(c_scores)
         ce_alignments = self.softmax_d1(ce_scores)
-        # co_alignments = self.softmax_d1(co_scores)
-        # ct_alignments = self.softmax_d1(ct_scores)
-
         ce_alignments = ce_alignments * use_cuda(graph_mask.type("torch.FloatTensor"))
-        # ct_alignments = ct_alignments * use_cuda(only_two_entity_mask.type("torch.FloatTensor"))
 
         c_context = torch.sum(c_alignments.unsqueeze(2) * c_attention_values, 1)
         ce_context = torch.sum(ce_alignments.unsqueeze(2) * ce_attention_values, 1)
-        # co_context = torch.sum(co_alignments.unsqueeze(2) * co_attention_values, 1)
 
         context = self.context_linear(torch.cat((decoder_state, c_context, ce_context), 1))
-
         return context, ce_alignments
+
+    def beam_search(self, decoder_state, current_graph, outer):
+        batch_size = decoder_state.shape[0]
+        paths = []
+        for i, d in enumerate(outer):
+            path = dict()
+            graph = set(current_graph[i])
+            for o in d:
+                out = o[-1]
+                for node in self.adj_table[out]:
+                    if node in graph:
+                        continue
+                    if node in path:
+                        path[node].append(o + [node])
+                    else:
+                        path[node] = [o + [node]]
+            paths.append(path)
+        # choose the path with largest attention score for every nodes in outmost hop
+        paths_embed = []
+        nodes_list = []
+        for d in paths:
+            node_list = []
+            # path_embed = use_cuda(torch.empty(0))
+            path_embed = []
+            for node in d:
+                path = d[node]
+                for i, p in enumerate(path):
+                    node_list.append([node, p])
+                    p_embed = torch.sum(self.entity_embedding(use_cuda(torch.Tensor(p).long())), 0).detach()
+                    p_embed = p_embed.cpu().numpy().tolist()
+                    # p_embed.unsqueeze_(dim=0)
+                    # p_embed.unsqueeze_(dim=0)   # (1, 1, trans_unit)
+                    # torch.cat((path_embed, p_embed), dim=1)     # (1, x, trans_unit)
+                    path_embed.append(p_embed)
+            paths_embed.append(path_embed)
+            nodes_list.append(node_list)
+        max_path_num = max([len(pp) for pp in paths_embed])
+        padded_paths_embed = \
+            [pp + [[0 for j in range(100)] for i in range((max_path_num - len(pp)))] for pp in paths_embed]
+        paths_embed = use_cuda(torch.Tensor(padded_paths_embed))
+        c_query = decoder_state.unsqueeze(1)
+        scores = torch.sum(c_query * self.graph_attn_linear(paths_embed), dim=2)    # (bs, max_path_num)
+        scores = scores.detach().cpu().numpy().tolist()
+        for i in range(batch_size):
+            node_list = nodes_list[i]
+            candidates = dict()
+            for j in range(len(node_list)):
+                node = node_list[j][0]
+                path = node_list[j][1]
+                if node in candidates and scores[i][j] > candidates[node][0]:
+                    candidates[node][0] = scores[i][j]
+                else:
+                    candidates[node] = [scores[i][j], path]
+            candidate = [candidates[c] for c in candidates]
+            candidate.sort(key=lambda c: c[0], reverse=True)
+            new_nodes = candidate[:self.bs_width]
+            outer[i] = [n[1] for n in new_nodes]
+            current_graph[i] += [n[-1] for n in outer[i]]
+        max_graph_size = max([len(g) for g in current_graph])
+        padded_graph = [g + [1 for i in range(max_graph_size - len(g))] for g in current_graph]
+        graph_mask = [[1 for i in range(len(g))] + [0 for i in range(max_graph_size - len(g))] for g in current_graph]
+        graph_mask = use_cuda(torch.Tensor(graph_mask).long())
+        graph_values = self.entity_embedding(use_cuda(torch.Tensor(padded_graph).long()))
+        graph_keys = self.graph_attn_linear(graph_values)
+
+        return graph_keys, graph_values, graph_mask
 
     def init_hidden(self, num_layer, batch_size, hidden_size):
         return (use_cuda(Variable(torch.zeros(num_layer, batch_size, hidden_size))),

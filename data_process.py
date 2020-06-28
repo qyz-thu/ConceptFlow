@@ -56,7 +56,7 @@ def process_train():
 
     # get adjacent table
     for i in range(len(entity_list)):
-        adj_table[i] = list()
+        adj_table[i] = set()
     for triple in csk_triples:
         t = triple.split(',')
         sbj = t[0]
@@ -65,16 +65,15 @@ def process_train():
             continue
         id1 = entity2id[sbj]
         id2 = entity2id[obj]
-        adj_table[id1].append(id2)
-        adj_table[id2].append(id1)
+        adj_table[id1].add(id2)
+        adj_table[id2].add(id1)
 
-    f_w = open(data_dir + '_trainset4bs.txt', 'w')
+    f_w = open(data_dir + 'trainset4bs_full.txt', 'w')
     with open(data_dir + 'trainset.txt') as f:
         for i, line in enumerate(f):
             if i % 1000 == 0:
                 print('processed %d samples' % i)
-            if i > 999:
-                break
+            # if i > 99999: break
             data = json.loads(line)
             post_ent = list()
             response_ent = [-1 for i in range(len(data['response']))]
@@ -87,19 +86,33 @@ def process_train():
             path = get_path(post_ent, response_ent)
             # subgraph consists of zero-hop entities and entities from all shortest path for every golden entities
             subgraph = set(post_ent)
+            edge_in_path = dict()
             for p in path:
                 for pp in p:
+                    prior = None
                     for e in pp:
                         if id2entity[e] in entity_list:
                             subgraph.add(e)
+                        if prior:
+                            head = max(prior, e)
+                            tail = prior + e - head
+                            if head in edge_in_path:
+                                edge_in_path[head].add(tail)
+                            else:
+                                edge_in_path[head] = {tail}
+                        prior = e
             subgraph = list(subgraph)
             edges = list()
             for i in range(len(subgraph)):
                 for j in range(i + 1, len(subgraph)):
                     if subgraph[j] in adj_table[subgraph[i]]:
                         edges.append([subgraph[i], subgraph[j]])
+            path_edges = []
+            for node in edge_in_path:
+                for tail in edge_in_path[node]:
+                    path_edges.append([node, tail])
             n_data = {'post': data['post'], 'response': data['response'], 'post_ent': post_ent, 'response_ent': response_ent,
-                      'graph_nodes': subgraph, 'graph_edges': edges}
+                      'graph_nodes': subgraph, 'graph_edges': edges, 'path_edges': path_edges}
             f_w.write(json.dumps(n_data) + '\n')
     f_w.close()
 

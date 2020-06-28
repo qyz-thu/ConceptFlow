@@ -28,7 +28,7 @@ def prepare_data(config):
                     print('read train file line %d' % idx)
                 data_train.append(json.loads(line))
     
-    with open('%s/testset.txt' % config.data_dir) as f:
+    with open('%s/testset4bs.txt' % config.data_dir) as f:
         for line in f:
             data_test.append(json.loads(line))
     
@@ -52,6 +52,23 @@ def build_vocab(path, raw_vocab, config, trans='transE'):
     with open('%s/relation.txt' % path) as f:
         for line in f:
             relation_list.append(line.strip())
+
+    print('Creating adjacency table...')
+    entity2id = dict()
+    adj_table = dict()
+    for i, e in enumerate(entity_list):
+        entity2id[e] = i
+        adj_table[i] = set()
+    for triple in csk_triples:
+        t = triple.split(',')
+        sbj = t[0]
+        obj = t[2][1:]
+        if sbj not in entity_list or obj not in entity_list:
+            continue
+        id1 = entity2id[sbj]
+        id2 = entity2id[obj]
+        adj_table[id1].add(id2)
+        adj_table[id2].add(id1)
 
     print("Loading word vectors...")
     vectors = {}
@@ -100,7 +117,7 @@ def build_vocab(path, raw_vocab, config, trans='transE'):
     for entity in entity_list + relation_list:
         entity2id[entity] = len(entity2id)
 
-    return word2id, entity2id, vocab_list, embed, entity_list, entity_embed, relation_list, relation_embed, entity_relation_embed
+    return word2id, entity2id, vocab_list, embed, entity_list, entity_embed, relation_list, relation_embed, entity_relation_embed, adj_table
 
 
 def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
@@ -115,6 +132,8 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
     # triple_len_one_two = max([len(tri) for item in data for tri in item['one_two_triple']])
     posts_id = np.full((len(data), encoder_len), 0, dtype=int)  # todo: change to np.zeros?
     responses_id = np.full((len(data), decoder_len), 0, dtype=int)
+    post_ent = []
+    response_ent = []
     responses_length = []
     subgraph = []
     subgraph_length = []
@@ -171,10 +190,8 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
         # responses_length
         responses_length.append(len(item['response']) + 1)
 
-
         if not is_inference:
             subgraph_tmp = item['graph_nodes']
-
             subgraph_len_tmp = len(subgraph_tmp)
             subgraph_tmp += [1] * (entity_len - len(subgraph_tmp))
             subgraph.append(subgraph_tmp)
@@ -263,8 +280,13 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
         #
         # # only_two_entity_length
         # only_two_entity_length.append(only_two_entity_len_tmp)
+        else:
+            post_ent.append(item['post_ent'])
+            response_ent.append(item['response_ent'] + [-1 for j in range(decoder_len - len(item['response_ent']))])
 
         next_id += 1
+
+
 
     # def _build_kb_adj_mat(kb_adj_mats, fact_dropout):
     #     """Create sparse matrix representation for batched data"""
@@ -297,11 +319,13 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
     #
     #     return (mats0_batch, mats0_0, mats0_1, vals0), (mats1_batch, mats1_0, mats1_1, vals1)
 
-    batched_data = {'query_text': np.array(posts_id), 
+    batched_data = {'post_text': np.array(posts_id),
                     'response_text': np.array(responses_id),
                     'subgraph': np.array(subgraph),
                     'subgraph_size': subgraph_length,
                     'responses_length': responses_length,
+                    'post_ent': post_ent,
+                    'response_ent': response_ent,
                     # 'local_entity': np.array(local_entity),
                     # 'q2e_adj_mat': np.array(q2e_adj_mats),
                     # 'kb_adj_mat': _build_kb_adj_mat(kb_adj_mats, config.fact_dropout),
