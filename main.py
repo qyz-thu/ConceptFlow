@@ -71,47 +71,39 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
         sentence_ppx_loss = 0
         sentence_ppx_word_loss = 0
         sentence_ppx_local_loss = 0
-        sentence_ppx_only_two_loss = 0
-
         word_cut = use_cuda(torch.Tensor([0]))
         local_cut = use_cuda(torch.Tensor([0]))
-        only_two_cut = use_cuda(torch.Tensor([0]))
 
         count = 0
         for iteration in range(len(data_train) // config.batch_size):
-            # decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, sentence_ppx_only_two, word_neg_num, local_neg_num, only_two_neg_num \
-            decoder_loss, sentence_ppx = run(model, data_train[(iteration * config.batch_size):(iteration * config.batch_size + config.batch_size)],
-                      config, word2id, entity2id)
+            data = data_train[(iteration * config.batch_size):(iteration * config.batch_size + config.batch_size)]
+            decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, word_neg_num, entity_neg_num = \
+                run(model, data, config, word2id, entity2id)
             sentence_ppx_loss += torch.sum(sentence_ppx).data
-            # sentence_ppx_word_loss += torch.sum(sentence_ppx_word).data
-            # sentence_ppx_local_loss += torch.sum(sentence_ppx_local).data
-            # sentence_ppx_only_two_loss += torch.sum(sentence_ppx_only_two).data
-            # word_cut += word_neg_num
-            # local_cut += local_neg_num
-            # only_two_cut += only_two_neg_num
+            sentence_ppx_word_loss += torch.sum(sentence_ppx_word).data
+            sentence_ppx_local_loss += torch.sum(sentence_ppx_local).data
+            word_cut += word_neg_num
+            local_cut += entity_neg_num
 
             model_optimizer.zero_grad()
             decoder_loss.backward()
             torch.nn.utils.clip_grad_norm(model.parameters(), config.max_gradient_norm)
             model_optimizer.step()
-
             if count % 50 == 0:
                 print ("iteration:", iteration, "Loss:", decoder_loss.data)
             count += 1
 
-        print("perplexity for epoch %d: %.4f" % (epoch + 1, np.exp(sentence_ppx_loss.cpu() / len(data_train))))
-        # print ("perplexity for epoch", epoch + 1, ":", np.exp(sentence_ppx_loss.cpu() / len(data_train)), " ppx_word: ", \
-        #     np.exp(sentence_ppx_word_loss.cpu() / (len(data_train) - int(word_cut))), " ppx_local: ", \
-        #     np.exp(sentence_ppx_local_loss.cpu() / (len(data_train) - int(local_cut))), " ppx_only_two: ", \
-        #     np.exp(sentence_ppx_only_two_loss.cpu() / (len(data_train) - int(only_two_cut))))
+        print ("perplexity for epoch", epoch + 1, ":", np.exp(sentence_ppx_loss.cpu() / len(data_train)), " ppx_word: ", \
+            np.exp(sentence_ppx_word_loss.cpu() / (len(data_train) - int(word_cut))), " ppx_entity: ", \
+            np.exp(sentence_ppx_local_loss.cpu() / (len(data_train) - int(local_cut))))
 
         torch.save(model.state_dict(), config.model_save_name + '_epoch_' + str(epoch + 1) + '.pkl')
-        ppx, recall = evaluate(model, data_test, config, word2id, entity2id, epoch + 1)
+        ppx, ppx_word, ppx_entity, recall = evaluate(model, data_test, config, word2id, entity2id, epoch + 1)
         ppx_f = open(config.result_dir_name,'a')
-        ppx_f.write("test perplexity for epoch %d: %.4f\n" % (epoch + 1, ppx))
+        # ppx_f.write("test perplexity for epoch %d: %.4f\n" % (epoch + 1, ppx))
         ppx_f.write("test entity recall for epoch %d: %.4f\n" % (epoch + 1, recall))
-        # ppx_f.write("epoch " + str(epoch + 1) + " ppx: " + str(ppx) + " ppx_word: " + str(ppx_word) + " ppx_local: " + \
-        #     str(ppx_local) + " ppx_only_two: " + str(ppx_only_two) + '\n')
+        ppx_f.write("epoch " + str(epoch + 1) + " ppx: " + str(ppx) + " ppx_word: " + str(ppx_word) + " ppx_entity: " + \
+            str(ppx_entity) + '\n')
         ppx_f.close()
 
 
@@ -121,11 +113,9 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, is_test=False,
     sentence_ppx_loss = 0
     sentence_ppx_word_loss = 0
     entity_recall = 0
-    # sentence_ppx_local_loss = 0
-    # sentence_ppx_only_two_loss = 0
-    # word_cut = use_cuda(torch.Tensor([0]))
-    # local_cut = use_cuda(torch.Tensor([0]))
-    # only_two_cut = use_cuda(torch.Tensor([0]))
+    sentence_ppx_local_loss = 0
+    word_cut = use_cuda(torch.Tensor([0]))
+    local_cut = use_cuda(torch.Tensor([0]))
     count = 0
     model.is_inference = True
     id2word = dict()
@@ -163,19 +153,15 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, is_test=False,
         w.close()
 
     for iteration in range(len(data_test) // config.batch_size):
-        # decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, sentence_ppx_only_two, word_index, word_neg_num, \
-        #     local_neg_num, only_two_neg_num, selector \
-        decoder_loss, sentence_ppx, recall = run(model, data_test[(iteration * config.batch_size):(iteration * \
-            config.batch_size + config.batch_size)], config, word2id, entity2id, model.is_inference)
+        data = data_test[(iteration * config.batch_size):(iteration * config.batch_size + config.batch_size)]
+        decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, word_neg_num, entity_neg_num, recall = \
+            run(model, data, config, word2id, entity2id, model.is_inference)
         sentence_ppx_loss += torch.sum(sentence_ppx).data
         entity_recall += recall
-        # sentence_ppx_word_loss += torch.sum(sentence_ppx_word).data
-        # sentence_ppx_local_loss += torch.sum(sentence_ppx_local).data
-        # sentence_ppx_only_two_loss += torch.sum(sentence_ppx_only_two).data
-
-        # word_cut += word_neg_num
-        # local_cut += local_neg_num
-        # only_two_cut += only_two_neg_num
+        sentence_ppx_word_loss += torch.sum(sentence_ppx_word).data
+        sentence_ppx_local_loss += torch.sum(sentence_ppx_local).data
+        word_cut += word_neg_num
+        local_cut += entity_neg_num
 
         if count % 50 == 0:
             print ("iteration for evaluate:", iteration, "Loss:", decoder_loss.data)
@@ -185,18 +171,16 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, is_test=False,
     model.is_inference = False
     if model_path != None:
         print('perplexity on test set:', np.exp(sentence_ppx_loss.cpu() / len(data_test)), \
-            np.exp(sentence_ppx_word_loss.cpu() / (len(data_test) - int(word_cut))), np.exp(sentence_ppx_local_loss.cpu() / (len(data_test) \
-            - int(local_cut))), np.exp(sentence_ppx_only_two_loss.cpu() / (len(data_test) - int(only_two_cut))))
+            np.exp(sentence_ppx_word_loss.cpu() / (len(data_test) - int(word_cut))),
+            np.exp(sentence_ppx_local_loss.cpu() / (len(data_test) - int(local_cut))))
         exit()
-    print('perplexity on test set:', np.exp(sentence_ppx_loss.cpu() / len(data_test)))
+    print('perplexity on test set:', np.exp(sentence_ppx_loss.cpu() / len(data_test)),
+          "word ppl: ", np.exp(sentence_ppx_word_loss.cpu() / (len(data_test) - int(word_cut))),
+          'entity ppl: ', np.exp(sentence_ppx_local_loss.cpu() / (len(data_test) - int(local_cut))))
     print("response entity recall: ", entity_recall)
-        #   , np.exp(sentence_ppx_word_loss.cpu() / \
-        # (len(data_test) - int(word_cut))), np.exp(sentence_ppx_local_loss.cpu() / (len(data_test) - int(local_cut))), \
-        # np.exp(sentence_ppx_only_two_loss.cpu() / (len(data_test) - int(only_two_cut))))
-    return np.exp(sentence_ppx_loss.cpu() / len(data_test)), entity_recall
-        # , np.exp(sentence_ppx_word_loss.cpu() / (len(data_test) - int(word_cut))), \
-        # np.exp(sentence_ppx_local_loss.cpu() / (len(data_test) - int(local_cut))), np.exp(sentence_ppx_only_two_loss.cpu() / \
-        # (len(data_test) - int(only_two_cut)))
+
+    return np.exp(sentence_ppx_loss.cpu() / len(data_test)), np.exp(sentence_ppx_word_loss.cpu() / (len(data_test) - int(word_cut))), \
+        np.exp(sentence_ppx_local_loss.cpu() / (len(data_test) - int(local_cut))), entity_recall
 
 
 def main():

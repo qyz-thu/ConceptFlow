@@ -28,7 +28,7 @@ def prepare_data(config):
                     print('read train file line %d' % idx)
                 data_train.append(json.loads(line))
     
-    with open('%s/testset4bs.txt' % config.data_dir) as f:
+    with open('%s/_testset4bs.txt' % config.data_dir) as f:
         for line in f:
             data_test.append(json.loads(line))
     
