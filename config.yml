@@ -21,3 +21,4 @@ max_hop: 3
 result_dir_name: "result.txt"
 model_save_name: "model"
 generated_text_name: "generated_text"
+log_dir: "log.txt"

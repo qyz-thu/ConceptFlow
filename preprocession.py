@@ -287,9 +287,7 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
         # only_two_entity_length.append(only_two_entity_len_tmp)
         # else:
 
-
         next_id += 1
-
 
     batched_data = {'post_text': np.array(posts_id),
                     'response_text': np.array(responses_id),

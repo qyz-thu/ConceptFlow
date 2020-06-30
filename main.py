@@ -41,6 +41,7 @@ class Config():
         self.fact_scale = config['fact_scale']
         self.pagerank_lambda = config['pagerank_lambda']
         self.result_dir_name = config['result_dir_name']
+        self.log_dir = config['log_dir']
         self.model_save_name = config['model_save_name']
         self.generated_text_name = config['generated_text_name']
         self.beam_search_width = config['beam_search_width']
@@ -68,6 +69,8 @@ def run(model, data_train, config, word2id, entity2id, is_inference=False):
 def train(config, model, data_train, data_test, word2id, entity2id, model_optimizer):
     for epoch in range(config.num_epoch):
         print("epoch: ", epoch)
+        with open(config.log_dir, 'a') as f:
+            f.write("epoch %d\n" % (epoch + 1))
         sentence_ppx_loss = 0
         sentence_ppx_word_loss = 0
         sentence_ppx_local_loss = 0
@@ -91,11 +94,17 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
             model_optimizer.step()
             if count % 50 == 0:
                 print ("iteration:", iteration, "Loss:", decoder_loss.data)
+                with open(config.log_dir, 'a') as f:
+                    f.write("iteration: %d Loss: %d\n" % (iteration, decoder_loss.data))
             count += 1
 
         print ("perplexity for epoch", epoch + 1, ":", np.exp(sentence_ppx_loss.cpu() / len(data_train)), " ppx_word: ", \
             np.exp(sentence_ppx_word_loss.cpu() / (len(data_train) - int(word_cut))), " ppx_entity: ", \
             np.exp(sentence_ppx_local_loss.cpu() / (len(data_train) - int(local_cut))))
+        with open(config.log_dir, 'a') as f:
+            f.write("perplexity for epoch%d: %.2f word ppl: %.2f entity ppl: %.2f\n" % (epoch + 1,
+                np.exp(sentence_ppx_loss.cpu() / len(data_train)), np.exp(sentence_ppx_word_loss.cpu() / (len(data_train) - int(word_cut))),
+                np.exp(sentence_ppx_local_loss.cpu() / (len(data_train) - int(local_cut)))))
 
         # torch.save(model.state_dict(), config.model_save_name + '_epoch_' + str(epoch + 1) + '.pkl')
         ppx, ppx_word, ppx_entity, recall = evaluate(model, data_test, config, word2id, entity2id, epoch + 1)
@@ -177,7 +186,14 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, is_test=False,
     print('perplexity on test set:', np.exp(sentence_ppx_loss.cpu() / len(data_test)),
           "word ppl: ", np.exp(sentence_ppx_word_loss.cpu() / (len(data_test) - int(word_cut))),
           'entity ppl: ', np.exp(sentence_ppx_local_loss.cpu() / (len(data_test) - int(local_cut))))
+    with open(config.log_dir, 'a') as f:
+        f.write("perplexity on testset: %.2f word ppl: %.2f entity ppl: %.2f\n" % (np.exp(sentence_ppx_loss.cpu() / len(data_test)),
+                np.exp(sentence_ppx_word_loss.cpu() / (len(data_test) - int(word_cut))),
+                np.exp(sentence_ppx_local_loss.cpu() / (len(data_test) - int(local_cut)))))
+        f.write("response entity recall: %.2f\n" % entity_recall)
     print("response entity recall: ", entity_recall)
+
+
 
     return np.exp(sentence_ppx_loss.cpu() / len(data_test)), np.exp(sentence_ppx_word_loss.cpu() / (len(data_test) - int(word_cut))), \
         np.exp(sentence_ppx_local_loss.cpu() / (len(data_test) - int(local_cut))), entity_recall

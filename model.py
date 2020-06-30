@@ -296,14 +296,11 @@ class ConceptFlow(nn.Module):
             for t in range(decoder_len):
                 decoder_input_t = torch.cat((decoder_input_t, context), 1).unsqueeze(1)
                 decoder_output_t, decoder_state = self.decoder(decoder_input_t, decoder_state)
-                # context, ce_alignments_t, co_alignments_t, ct_alignments_t = self.attention(c_attention_keys, c_attention_values, \
-                #     ce_attention_keys, ce_attention_values, co_attention_keys, co_attention_values, ct_attention_keys, \
-                #     decoder_output_t.squeeze(1), local_entity_mask, only_two_entity_mask)
+
                 if t < self.max_hop:
                     ce_attention_keys, ce_attention_values, graph_mask = self.beam_search(decoder_output_t.squeeze(1), current_graph, outer)
                 context, ce_alignments_t = self.attention(c_attention_keys, c_attention_values, ce_attention_keys, ce_attention_values,
                                                               decoder_output_t.squeeze(1), graph_mask)
-
                 decoder_output_t = context.unsqueeze(1)
 
                 decoder_input_t, word_index_t, selector_t = self.inference(decoder_output_t, ce_alignments_t, word2id, current_graph, id2entity)
@@ -346,18 +343,10 @@ class ConceptFlow(nn.Module):
                         found_num += 1
 
         use_entities_local = torch.sum(graph_entities, [2])
-        #
-        # one_hot_entities_only_two = use_cuda(torch.zeros(batch_size, decoder_len, max_only_two_entity))
 
-        # decoder_loss, ppx_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, sentence_ppx_only_two, \
-        #     word_neg_num, local_neg_num, only_two_neg_num \
         decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_entity, word_neg_num, local_neg_num = \
             self.total_loss(decoder_output, responses_target, decoder_mask, ce_alignments, use_entities_local, graph_entities)
 
-        # if self.is_inference == True:
-            # return decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, sentence_ppx_only_two, \
-            #     word_index.cpu().numpy().tolist(), word_neg_num, local_neg_num, only_two_neg_num, selector.cpu().numpy().tolist()
-        # return decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, sentence_ppx_only_two, word_neg_num, local_neg_num, only_two_neg_num
         if self.is_inference:
             return decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_entity, word_neg_num, local_neg_num, found_num / response_ent_num
         return decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_entity, word_neg_num, local_neg_num
@@ -377,15 +366,14 @@ class ConceptFlow(nn.Module):
         # get the probablities and indices of choosen tokens
         (word_prob, word_t) = torch.max(selector[:, 0].unsqueeze(1) * self.softmax_d1(logits), dim=1)
         (entity_prob, entity_index_t) = torch.max(selector[:, 1].unsqueeze(1) * ce_alignments_t, dim=1)
-        # (only_two_entity_prob, only_two_entity_l_index_t) = torch.max(selector[:,2].unsqueeze(1) * ct_alignments_t, dim=1)
 
         selector[:,0] = selector[:,0] * word_prob
         selector[:,1] = selector[:,1] * entity_prob
-        # selector[:,2] = selector[:,2] * only_two_entity_prob
+        # selector[:, 0] = word_prob
+        # selector[:, 1] = entity_prob
         selector = torch.argmax(selector, dim=1)
 
         entity_index_t = entity_index_t.cpu().numpy().tolist()
-        # only_two_entity_l_index_t = only_two_entity_l_index_t.cpu().numpy().tolist()
         word_t = word_t.cpu().numpy().tolist()
 
         word_local_entity_t = []
@@ -400,12 +388,6 @@ class ConceptFlow(nn.Module):
                 if local_entity_text not in word2id:
                     local_entity_text = '_UNK'
                 word_index_final_t.append(word2id[local_entity_text])
-            # if selector[i] == 2:
-            #     only_two_entity_index_t = int(only_two_entity[i][only_two_entity_l_index_t[i]])
-            #     only_two_entity_text = id2entity[only_two_entity_index_t]
-            #     if only_two_entity_text not in word2id:
-            #         only_two_entity_text = '_UNK'
-            #     word_index_final_t.append(word2id[only_two_entity_text])
 
         word_index_final_t = use_cuda(torch.LongTensor(word_index_final_t))
         decoder_input_t = self.word_embedding(word_index_final_t)
@@ -419,7 +401,6 @@ class ConceptFlow(nn.Module):
         local_masks = use_cuda(decoder_mask.reshape([-1]).type("torch.FloatTensor"))
         local_masks_word = use_cuda((1 - use_entities_local).reshape([-1]).type("torch.FloatTensor")) * local_masks
         local_masks_local = use_cuda(use_entities_local.reshape([-1]).type("torch.FloatTensor"))
-        # local_masks_only_two = use_cuda(use_entities_only_two.reshape([-1]).type("torch.FloatTensor"))
         logits = self.logits_linear(decoder_output) # (bs, decoder_len, num_symbols)
 
         word_prob = torch.gather(self.softmax_d2(logits), 2, responses_target.unsqueeze(2)).squeeze(2)  # (bs, decoder_len)
@@ -427,15 +408,11 @@ class ConceptFlow(nn.Module):
         selector_word, selector_local = torch.split(self.softmax_d2(self.selector_linear(decoder_output)), [1, 1], 2) # (bs, decoder_len, 1)
         selector_word = selector_word.squeeze(2)
         selector_local = selector_local.squeeze(2)
-        # selector_only_two = selector_only_two.squeeze(2)
-
         entity_prob_local = torch.sum(ce_alignments * entity_targets_local, [2])
-        # entity_prob_only_two = torch.sum(ct_alignments * entity_targets_only_two, [2])
 
         ppx_prob = word_prob * (1 - use_entities_local) + entity_prob_local * use_entities_local
         ppx_word = word_prob * (1 - use_entities_local)
         ppx_local = entity_prob_local * use_entities_local
-        # ppx_only_two = entity_prob_only_two * use_entities_only_two
 
         final_prob = word_prob * selector_word * (1 - use_entities_local) + entity_prob_local * selector_local * use_entities_local
 
@@ -444,7 +421,6 @@ class ConceptFlow(nn.Module):
         sentence_ppx = torch.sum((-torch.log(1e-12 + ppx_prob).reshape([-1]) * local_masks).reshape([batch_size, -1]), 1)
         sentence_ppx_word = torch.sum((-torch.log(1e-12 + ppx_word).reshape([-1]) * local_masks_word).reshape([batch_size, -1]), 1)
         sentence_ppx_local = torch.sum((-torch.log(1e-12 + ppx_local).reshape([-1]) * local_masks_local).reshape([batch_size, -1]), 1)
-        # sentence_ppx_only_two = torch.sum((- torch.log(1e-12 + ppx_only_two).reshape([-1]) * local_masks_only_two).reshape([batch_size, -1]), 1)
 
         selector_loss = torch.sum(-torch.log(1e-12 + selector_local * use_entities_local + selector_word * (1 - use_entities_local)).reshape([-1]) * local_masks)
 
@@ -464,9 +440,6 @@ class ConceptFlow(nn.Module):
         sum_word = sum_word + word_neg_mask
         sum_local = sum_local + local_neg_mask
 
-        # return loss / total_size, 0, sentence_ppx / torch.sum(use_cuda(decoder_mask.type("torch.FloatTensor")), 1), \
-        #     sentence_ppx_word / sum_word, sentence_ppx_local / sum_local, sentence_ppx_only_two / sum_only_two, word_neg_num, \
-        #     local_neg_num, only_two_neg_num
         return loss/total_size, sentence_ppx/torch.sum(use_cuda(decoder_mask.type("torch.FloatTensor")), 1), \
                sentence_ppx_word/sum_word, sentence_ppx_local/sum_local, word_neg_num, local_neg_num
 
@@ -518,9 +491,6 @@ class ConceptFlow(nn.Module):
                     node_list.append([node, p])
                     p_embed = torch.sum(self.entity_embedding(use_cuda(torch.Tensor(p).long())), 0).detach()
                     p_embed = p_embed.cpu().numpy().tolist()
-                    # p_embed.unsqueeze_(dim=0)
-                    # p_embed.unsqueeze_(dim=0)   # (1, 1, trans_unit)
-                    # torch.cat((path_embed, p_embed), dim=1)     # (1, x, trans_unit)
                     path_embed.append(p_embed)
             paths_embed.append(path_embed)
             nodes_list.append(node_list)
@@ -598,5 +568,4 @@ class ConceptFlow(nn.Module):
         prod_op = LeftMMFixed()
         prod = prod_op(S, lookup)
         return prod.view(B, M, K)
-
 
