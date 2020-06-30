@@ -190,6 +190,11 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
         # responses_length
         responses_length.append(len(item['response']) + 1)
 
+        # post&response entities
+        post_ent.append(item['post_ent'])
+        response_ent.append(item['response_ent'] + [-1 for j in range(decoder_len - len(item['response_ent']))])
+
+        # if not is_inference:
         if not is_inference:
             subgraph_tmp = item['graph_nodes']
             subgraph_len_tmp = len(subgraph_tmp)
@@ -280,44 +285,11 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
         #
         # # only_two_entity_length
         # only_two_entity_length.append(only_two_entity_len_tmp)
-        else:
-            post_ent.append(item['post_ent'])
-            response_ent.append(item['response_ent'] + [-1 for j in range(decoder_len - len(item['response_ent']))])
+        # else:
+
 
         next_id += 1
 
-
-
-    # def _build_kb_adj_mat(kb_adj_mats, fact_dropout):
-    #     """Create sparse matrix representation for batched data"""
-    #     mats0_batch = np.array([], dtype=int)
-    #     mats0_0 = np.array([], dtype=int)
-    #     mats0_1 = np.array([], dtype=int)
-    #     vals0 = np.array([], dtype=float)
-    #
-    #     mats1_batch = np.array([], dtype=int)
-    #     mats1_0 = np.array([], dtype=int)
-    #     mats1_1 = np.array([], dtype=int)
-    #     vals1 = np.array([], dtype=float)
-    #
-    #     for i in range(kb_adj_mats.shape[0]):
-    #         (mat0_0, mat0_1, val0), (mat1_0, mat1_1, val1) = kb_adj_mats[i]
-    #         assert len(val0) == len(val1)
-    #         num_fact = len(val0)
-    #         num_keep_fact = int(np.floor(num_fact * (1 - fact_dropout)))
-    #         mask_index = np.random.permutation(num_fact)[ : num_keep_fact]
-    #         # mat0
-    #         mats0_batch = np.append(mats0_batch, np.full(len(mask_index), i, dtype=int))
-    #         mats0_0 = np.append(mats0_0, mat0_0[mask_index])
-    #         mats0_1 = np.append(mats0_1, mat0_1[mask_index])
-    #         vals0 = np.append(vals0, val0[mask_index])
-    #         # mat1
-    #         mats1_batch = np.append(mats1_batch, np.full(len(mask_index), i, dtype=int))
-    #         mats1_0 = np.append(mats1_0, mat1_0[mask_index])
-    #         mats1_1 = np.append(mats1_1, mat1_1[mask_index])
-    #         vals1 = np.append(vals1, val1[mask_index])
-    #
-    #     return (mats0_batch, mats0_0, mats0_1, vals0), (mats1_batch, mats1_0, mats1_1, vals1)
 
     batched_data = {'post_text': np.array(posts_id),
                     'response_text': np.array(responses_id),

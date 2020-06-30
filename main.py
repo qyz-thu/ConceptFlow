@@ -97,7 +97,7 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
             np.exp(sentence_ppx_word_loss.cpu() / (len(data_train) - int(word_cut))), " ppx_entity: ", \
             np.exp(sentence_ppx_local_loss.cpu() / (len(data_train) - int(local_cut))))
 
-        torch.save(model.state_dict(), config.model_save_name + '_epoch_' + str(epoch + 1) + '.pkl')
+        # torch.save(model.state_dict(), config.model_save_name + '_epoch_' + str(epoch + 1) + '.pkl')
         ppx, ppx_word, ppx_entity, recall = evaluate(model, data_test, config, word2id, entity2id, epoch + 1)
         ppx_f = open(config.result_dir_name,'a')
         # ppx_f.write("test perplexity for epoch %d: %.4f\n" % (epoch + 1, ppx))

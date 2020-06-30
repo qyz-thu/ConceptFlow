@@ -303,6 +303,7 @@ class ConceptFlow(nn.Module):
                     ce_attention_keys, ce_attention_values, graph_mask = self.beam_search(decoder_output_t.squeeze(1), current_graph, outer)
                 context, ce_alignments_t = self.attention(c_attention_keys, c_attention_values, ce_attention_keys, ce_attention_values,
                                                               decoder_output_t.squeeze(1), graph_mask)
+
                 decoder_output_t = context.unsqueeze(1)
 
                 decoder_input_t, word_index_t, selector_t = self.inference(decoder_output_t, ce_alignments_t, word2id, current_graph, id2entity)
@@ -311,8 +312,9 @@ class ConceptFlow(nn.Module):
                 if t > 0:
                     padding_len = ce_alignments_t.shape[1] - ce_alignments.shape[2]
                     ce_alignments = torch.cat((ce_alignments, use_cuda(torch.zeros([batch_size, t, padding_len]))), 2)
-                ce_alignments = torch.cat((ce_alignments, ce_alignments_t.unsqueeze(1)), 1)
                 decoder_output = torch.cat((decoder_output, decoder_output_t), 1)
+                ce_alignments = torch.cat((ce_alignments, ce_alignments_t.unsqueeze(1)), 1)
+
             max_graph_size = max([len(c) for c in current_graph])
 
         ### Total Loss

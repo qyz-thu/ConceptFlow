@@ -70,12 +70,12 @@ def process_train():
         adj_table[id2].add(id1)
 
     start_time = time.time()
-    f_w = open(data_dir + 'trainset4bs_full.txt', 'w')
+    f_w = open(data_dir + 'trainset4bs.txt', 'w')
     with open(data_dir + 'trainset.txt') as f:
         for i, line in enumerate(f):
             if i % 1000 == 0:
                 print('processed %d samples, time used: %.2f' % (i, time.time() - start_time))
-            # if i > 99999: break
+            if i > 999: break
             data = json.loads(line)
             post_ent = list()
             response_ent = [-1 for i in range(len(data['response']))]
