@@ -84,7 +84,6 @@ def build_vocab(path, raw_vocab, config, trans='transE'):
     embed = []
     for word in vocab_list:
         if word in vectors:
-            #vector = map(float, vectors[word].split())
             vector = vectors[word].split()
         else:
             vector = np.zeros((config.embed_units), dtype=np.float32) 
@@ -96,7 +95,6 @@ def build_vocab(path, raw_vocab, config, trans='transE'):
     with open('%s/entity_%s.txt' % (path, trans)) as f:
         for i, line in enumerate(f):
             s = line.strip().split('\t')
-            #entity_embed.append(map(float, s))
             entity_embed.append(s)
 
     print("Loading relation vectors...")
@@ -125,11 +123,7 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
 
     encoder_len = max([len(item['post']) for item in data]) + 1
     decoder_len = max([len(item['response']) for item in data]) + 1
-    # triple_num = max([len(item['all_triples_one_hop']) for item in data])
     entity_len = max([len(item['graph_nodes']) for item in data])
-    # only_two_entity_len = max([len(item['only_two']) for item in data])
-    # triple_num_one_two = max([len(item['one_two_triple']) for item in data])
-    # triple_len_one_two = max([len(tri) for item in data for tri in item['one_two_triple']])
     posts_id = np.full((len(data), encoder_len), 0, dtype=int)  # todo: change to np.zeros?
     responses_id = np.full((len(data), decoder_len), 0, dtype=int)
     post_ent = []
@@ -137,37 +131,10 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
     responses_length = []
     subgraph = []
     subgraph_length = []
-    # local_entity_length = []
-    # only_two_entity_length = []
-    # local_entity = []
-    # only_two_entity = []
-    # kb_fact_rels = np.full((len(data), triple_num), 2, dtype=int)
-    # kb_adj_mats = np.empty(len(data), dtype=object)
-    # q2e_adj_mats = np.full((len(data), entity_len), 0, dtype=int)
     match_entity = np.full((len(data), decoder_len), -1, dtype=int)
-    # match_entity_only_two = np.full((len(data), decoder_len), -1, dtype=int)
-    one_two_triples_id = []
-    g2l_only_two_list = []
-    # o2t_entity_index_list = []
 
     def padding(sent, l):
         return sent + ['_EOS'] + ['_PAD'] * (l - len(sent) - 1)
-
-    # def padding_triple_id(triple, num, l):
-    #     newtriple = []
-    #     for i in range(len(triple)):
-    #         for j in range(len(triple[i])):
-    #             for k in range(len(triple[i][j])):
-    #                 if triple[i][j][k] in entity2id:
-    #                     triple[i][j][k] = entity2id[triple[i][j][k]]
-    #                 else:
-    #                     triple[i][j][k] = entity2id['_NONE']
-    #
-    #     #triple = [[[entity2id['_NAF_H'], entity2id['_NAF_R'], entity2id['_NAF_T']]]] + triple
-    #     for tri in triple:
-    #         newtriple.append(tri + [[entity2id['_PAD_H'], entity2id['_PAD_R'], entity2id['_PAD_T']]] * (l - len(tri)))
-    #     pad_triple = [[entity2id['_PAD_H'], entity2id['_PAD_R'], entity2id['_PAD_T']]] * l
-    #     return newtriple + [pad_triple] * (num - len(newtriple))
 
     next_id = 0
     for item in data:
@@ -195,14 +162,12 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
         response_ent.append(item['response_ent'] + [-1 for j in range(decoder_len - len(item['response_ent']))])
 
         # if not is_inference:
-        # if not is_inference:
         subgraph_tmp = item['graph_nodes']
         subgraph_len_tmp = len(subgraph_tmp)
         subgraph_tmp += [1] * (entity_len - len(subgraph_tmp))
         subgraph.append(subgraph_tmp)
         subgraph_length.append(subgraph_len_tmp)
 
-    # kb_adj_mat and kb_fact_rel
         g2l = dict()
         for i in range(len(subgraph_tmp)):
             g2l[subgraph_tmp[i]] = i
@@ -247,45 +212,6 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                 continue
             else:
                 match_entity[next_id, i] = g2l[item['response_ent'][i]]
-        #
-        # # only_two_entity
-        # only_two_entity_tmp = []
-        # for entity_index in item['only_two']:
-        #     if csk_entities[entity_index] not in entity2id:
-        #         continue
-        #     if entity2id[csk_entities[entity_index]] in only_two_entity_tmp:
-        #         continue
-        #     else:
-        #         only_two_entity_tmp.append(entity2id[csk_entities[entity_index]])
-        # only_two_entity_len_tmp = len(only_two_entity_tmp)
-        # only_two_entity_tmp += [1] * (only_two_entity_len - len(only_two_entity_tmp))
-        # only_two_entity.append(only_two_entity_tmp)
-        #
-        # # match_entity_two_hop
-        # g2l_only_two = dict()
-        # for i in range(len(only_two_entity_tmp)):
-        #     g2l_only_two[only_two_entity_tmp[i]] = i
-        #
-        # for i in range(len(item['match_response_index_only_two'])):
-        #     if item['match_response_index_only_two'][i] == -1:
-        #         continue
-        #     if csk_entities[item['match_response_index_only_two'][i]] not in entity2id:
-        #         continue
-        #     else:
-        #         match_entity_only_two[next_id, i] = g2l_only_two[entity2id[csk_entities[item['match_response_index_only_two'][i]]]]
-        #
-        # # one_two_triple
-        # one_two_triples_id.append(padding_triple_id([[csk_triples[x].split(', ') for x in triple] for triple in item['one_two_triple']], triple_num_one_two, triple_len_one_two))
-        #
-        # ############################ g2l_only_two
-        # g2l_only_two_list.append(g2l_only_two)
-        #
-        # # local_entity_length
-        # local_entity_length.append(local_entity_len_tmp)
-        #
-        # # only_two_entity_length
-        # only_two_entity_length.append(only_two_entity_len_tmp)
-        # else:
 
         next_id += 1
 
@@ -296,18 +222,9 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                     'responses_length': responses_length,
                     'post_ent': post_ent,
                     'response_ent': response_ent,
-                    # 'local_entity': np.array(local_entity),
-                    # 'q2e_adj_mat': np.array(q2e_adj_mats),
-                    # 'kb_adj_mat': _build_kb_adj_mat(kb_adj_mats, config.fact_dropout),
-                    # 'kb_fact_rel': np.array(kb_fact_rels),
                     'match_entity': np.array(match_entity),
-                    # 'only_two_entity': np.array(only_two_entity),
-                    # 'match_entity_only_two': np.array(match_entity_only_two),
-                    # 'one_two_triples_id': np.array(one_two_triples_id),
                     'word2id': word2id,
                     'entity2id': entity2id,
-                    # 'local_entity_length': local_entity_length,
-                    # 'only_two_entity_length': only_two_entity_length
                     }
     
     return batched_data

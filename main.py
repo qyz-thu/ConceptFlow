@@ -95,7 +95,7 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
             if count % 50 == 0:
                 print ("iteration:", iteration, "Loss:", decoder_loss.data)
                 with open(config.log_dir, 'a') as f:
-                    f.write("iteration: %d Loss: %d\n" % (iteration, decoder_loss.data))
+                    f.write("iteration: %d Loss: %.4f\n" % (iteration, decoder_loss.data))
             count += 1
 
         print ("perplexity for epoch", epoch + 1, ":", np.exp(sentence_ppx_loss.cpu() / len(data_train)), " ppx_word: ", \
@@ -109,7 +109,6 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
         # torch.save(model.state_dict(), config.model_save_name + '_epoch_' + str(epoch + 1) + '.pkl')
         ppx, ppx_word, ppx_entity, recall = evaluate(model, data_test, config, word2id, entity2id, epoch + 1)
         ppx_f = open(config.result_dir_name,'a')
-        # ppx_f.write("test perplexity for epoch %d: %.4f\n" % (epoch + 1, ppx))
         ppx_f.write("test entity recall for epoch %d: %.4f\n" % (epoch + 1, recall))
         ppx_f.write("epoch " + str(epoch + 1) + " ppx: " + str(ppx) + " ppx_word: " + str(ppx_word) + " ppx_entity: " + \
             str(ppx_entity) + '\n')
@@ -145,19 +144,18 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, is_test=False,
                         break
                     tmp.append(id2word[word_index[i][j]])
                 tmp_dict['res_text'] = tmp
-                local_tmp = []
-                only_two_tmp = []
-                for j in range(len(tmp)):
-                    if selector[i][j] == 1:
-                        local_tmp.append(tmp[j])
-                    if selector[i][j] == 2:
-                        only_two_tmp.append(tmp[j])
-                tmp_dict['local'] = local_tmp
-                tmp_dict['only_two'] = only_two_tmp
+                # local_tmp = []
+                # only_two_tmp = []
+                # for j in range(len(tmp)):
+                #     if selector[i][j] == 1:
+                #         local_tmp.append(tmp[j])
+                #     if selector[i][j] == 2:
+                #         only_two_tmp.append(tmp[j])
+                # tmp_dict['local'] = local_tmp
+                # tmp_dict['only_two'] = only_two_tmp
                 text.append(tmp_dict)
 
         for line in text:
-            
             w.write(json.dumps(line) + '\n')
         w.close()
 

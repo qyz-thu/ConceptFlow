@@ -45,11 +45,6 @@ class ConceptFlow(nn.Module):
         self.entity_embedding.weight.requires_grad = True
         self.entity_linear = nn.Linear(in_features=self.trans_units, out_features=self.trans_units)
 
-        # self.lstm_drop = nn.Dropout(p=config.lstm_dropout)
-        # self.linear_drop = nn.Dropout(p=config.linear_dropout)
-
-        # self.node_encoder = nn.LSTM(input_size=self.embed_units, hidden_size=self.trans_units, batch_first=True, bidirectional=False)
-
         self.softmax_d1 = nn.Softmax(dim=1)
         self.softmax_d2 = nn.Softmax(dim=2)
         self.relu = nn.ReLU()
@@ -58,32 +53,10 @@ class ConceptFlow(nn.Module):
         self.decoder = nn.GRU(input_size=self.units + self.embed_units, hidden_size=self.units, num_layers=self.layers, batch_first=True)
 
         self.attn_c_linear = nn.Linear(in_features=self.units, out_features=self.units, bias=False)
-        # self.attn_ce_linear = nn.Linear(in_features=self.trans_units, out_features=2 * self.units, bias=False)
-        # self.attn_co_linear = nn.Linear(in_features=2 * self.trans_units, out_features=2 * self.units, bias=False)
-        # self.attn_ct_linear = nn.Linear(in_features=self.trans_units, out_features=2 * self.units, bias=False)
-
         self.context_linear = nn.Linear(in_features=2 * self.units + self.trans_units, out_features=self.units, bias=False)
 
         # matrix for graph attention
         self.graph_attn_linear = nn.Linear(in_features=self.trans_units, out_features=self.units, bias=False)
-
-        # create linear functions
-        # self.k = 2 + 1
-        # for i in range(self.gnn_layers):
-        #     self.add_module('q2e_linear' + str(i), nn.Linear(in_features=self.trans_units, out_features=self.trans_units))
-        #     self.add_module('d2e_linear' + str(i), nn.Linear(in_features=self.trans_units, out_features=self.trans_units))
-        #     self.add_module('e2q_linear' + str(i), nn.Linear(in_features=self.k * self.trans_units, out_features=self.trans_units))
-        #     self.add_module('e2d_linear' + str(i), nn.Linear(in_features=self.k * self.trans_units, out_features=self.trans_units))
-        #     self.add_module('e2e_linear' + str(i), nn.Linear(in_features=self.k * self.trans_units, out_features=self.trans_units))
-        #
-        #     #use kb
-        #     self.add_module('kb_head_linear' + str(i), nn.Linear(in_features=self.trans_units, out_features=self.trans_units))
-        #     self.add_module('kb_tail_linear' + str(i), nn.Linear(in_features=self.trans_units, out_features=self.trans_units))
-        #     self.add_module('kb_self_linear' + str(i), nn.Linear(in_features=self.trans_units, out_features=self.trans_units))
-        #
-        # # one_two_triple
-        # self.head_tail_linear = nn.Linear(in_features=self.trans_units * 2, out_features=self.trans_units)
-        # self.one_two_entity_linear = nn.Linear(in_features=self.trans_units, out_features=self.trans_units)
 
         # Loss
         self.logits_linear = nn.Linear(in_features=self.units, out_features=self.symbols)
@@ -98,14 +71,7 @@ class ConceptFlow(nn.Module):
         subgraph = batch_data['subgraph']
         subgraph_len = batch_data['subgraph_size']
         match_entity = batch_data['match_entity']
-        # q2e_adj_mat = batch_data['q2e_adj_mat']
-        # kb_adj_mat = batch_data['kb_adj_mat']
-        # kb_fact_rel = batch_data['kb_fact_rel']
-        # only_two_entity = batch_data['only_two_entity']
-        # match_entity_only_two = batch_data['match_entity_only_two']
-        # one_two_triples_id = batch_data['one_two_triples_id']
-        # local_entity_length = batch_data['local_entity_length']
-        # only_two_entity_length = batch_data['only_two_entity_length']
+
 
         if self.is_inference == True:
             word2id = batch_data['word2id']
@@ -123,121 +89,21 @@ class ConceptFlow(nn.Module):
         subgraph_emb = self.entity_linear(self.entity_embedding(subgraph))
 
         batch_size = query_text.shape[0]
-        # _, max_only_two_entity = only_two_entity.shape
-        # _, one_two_triple_num, one_two_triple_len, _ = one_two_triples_id.shape
-        # _, max_fact = kb_fact_rel.shape
+
 
         # numpy to tensor
-        # local_entity = use_cuda(Variable(torch.from_numpy(local_entity).type('torch.LongTensor'), requires_grad=False))
-        # local_entity_mask = use_cuda((local_entity != 0).type('torch.FloatTensor'))
-        # kb_fact_rel = use_cuda(Variable(torch.from_numpy(kb_fact_rel).type('torch.LongTensor'), requires_grad=False))
+
         query_text = use_cuda(Variable(torch.from_numpy(query_text).type('torch.LongTensor'), requires_grad=False))
         response_text = use_cuda(Variable(torch.from_numpy(response_text).type('torch.LongTensor'), requires_grad=False))
         responses_length = use_cuda(Variable(torch.Tensor(responses_length).type('torch.LongTensor'), requires_grad=False))
         query_mask = use_cuda((query_text != 0).type('torch.FloatTensor'))
-        # only_two_entity = use_cuda(Variable(torch.from_numpy(only_two_entity).type('torch.LongTensor'), requires_grad=False))
-        # match_entity_only_two = use_cuda(Variable(torch.from_numpy(match_entity_only_two).type('torch.LongTensor'), requires_grad=False))
-        # one_two_triples_id = use_cuda(Variable(torch.from_numpy(one_two_triples_id).type('torch.LongTensor'), requires_grad=False))
-
-        # normalized adj matrix
-        # pagerank_f = use_cuda(Variable(torch.from_numpy(q2e_adj_mat).type('torch.FloatTensor'), requires_grad=True))
-        # q2e_adj_mat = use_cuda(Variable(torch.from_numpy(q2e_adj_mat).type('torch.FloatTensor'), requires_grad=False))
-        # assert pagerank_f.requires_grad == True
 
         decoder_len = response_text.shape[1]
         responses_target = response_text
         responses_id = torch.cat((use_cuda(torch.ones([batch_size, 1]).type('torch.LongTensor')),torch.split(response_text, [decoder_len - 1, 1], 1)[0]), 1)
-        # encode query
-        # query_word_emb = self.word_embedding(query_text)
-        # query_hidden_emb, (query_node_emb, _) = self.node_encoder(self.lstm_drop(query_word_emb), self.init_hidden(1, batch_size, self.trans_units))
-        # query_node_emb = query_node_emb.squeeze(dim=0).unsqueeze(dim=1)
-        # query_rel_emb = query_node_emb
-
-        # build kb_adj_matrix from sparse matrix
-        # (e2f_batch, e2f_f, e2f_e, e2f_val), (f2e_batch, f2e_e, f2e_f, f2e_val) = kb_adj_mat
-        # entity2fact_index = torch.LongTensor([e2f_batch, e2f_f, e2f_e])
-        # entity2fact_val = torch.FloatTensor(e2f_val)
-        # entity2fact_mat = use_cuda(torch.sparse.FloatTensor(entity2fact_index, entity2fact_val, torch.Size([batch_size, max_fact, max_local_entity])))
-        # fact2entity_index = torch.LongTensor([f2e_batch, f2e_e, f2e_f])
-        # fact2entity_val = torch.FloatTensor(f2e_val)
-        # fact2entity_mat = use_cuda(torch.sparse.FloatTensor(fact2entity_index, fact2entity_val, torch.Size([batch_size, max_local_entity, max_fact])))
-        #
-        # local_fact_emb = self.entity_embedding(kb_fact_rel)
-        # local_fact_emb = self.entity_linear(local_fact_emb)
-
-        # attention fact2question
-        # div = float(np.sqrt(self.trans_units))
-        # fact2query_sim = torch.bmm(query_hidden_emb, local_fact_emb.transpose(1, 2)) / div
-        # fact2query_sim = self.softmax_d1(fact2query_sim + (1 - query_mask.unsqueeze(dim=2)) * VERY_NEG_NUMBER)
-        #
-        # fact2query_att = torch.sum(fact2query_sim.unsqueeze(dim=3) * query_hidden_emb.unsqueeze(dim=2), dim=1)
-        #
-        # W = torch.sum(fact2query_att * local_fact_emb, dim=2) / div
-        # W_max = torch.max(W, dim=1, keepdim=True)[0]
-        # W_tilde = torch.exp(W - W_max)
-        # e2f_softmax = self.sparse_bmm(entity2fact_mat.transpose(1, 2), W_tilde.unsqueeze(dim=2)).squeeze(dim=2)
-        # e2f_softmax = torch.clamp(e2f_softmax, min=VERY_SMALL_NUMBER)
-        # e2f_out_dim = use_cuda(Variable(torch.sum(entity2fact_mat.to_dense(), dim=1), requires_grad=False))
-
-        # subgraph embedding
-        # subgraph_emb = self.entity_embedding(subgraph)
-
-        # label propagation on entities
-        # for i in range(self.gnn_layers):
-        #     # get linear transformation functions for each layer
-        #     q2e_linear = getattr(self, 'q2e_linear' + str(i))
-        #     d2e_linear = getattr(self, 'd2e_linear' + str(i))
-        #     e2q_linear = getattr(self, 'e2q_linear' + str(i))
-        #     e2d_linear = getattr(self, 'e2d_linear' + str(i))
-        #     e2e_linear = getattr(self, 'e2e_linear' + str(i))
-        #
-        #     kb_self_linear = getattr(self, 'kb_self_linear' + str(i))
-        #     kb_head_linear = getattr(self, 'kb_head_linear' + str(i))
-        #     kb_tail_linear = getattr(self, 'kb_tail_linear' + str(i))
-        #
-        #     # start propagation
-        #     next_local_entity_emb = local_entity_emb
-        #
-        #     # STEP 1: propagate from question, documents, and facts to entities
-        #     # question -> entity
-        #     q2e_emb = q2e_linear(self.linear_drop(query_node_emb)).expand(batch_size, max_local_entity, self.trans_units)
-        #     next_local_entity_emb = torch.cat((next_local_entity_emb, q2e_emb), dim=2)
-        #
-        #     # fact -> entity
-        #     e2f_emb = self.relu(kb_self_linear(local_fact_emb) + self.sparse_bmm(entity2fact_mat, kb_head_linear(self.linear_drop(local_entity_emb))))
-        #     e2f_softmax_normalized = W_tilde.unsqueeze(dim=2) * self.sparse_bmm(entity2fact_mat, (pagerank_f / e2f_softmax).unsqueeze(dim=2))
-        #     e2f_emb = e2f_emb * e2f_softmax_normalized
-        #     f2e_emb = self.relu(kb_self_linear(local_entity_emb) + self.sparse_bmm(fact2entity_mat, kb_tail_linear(self.linear_drop(e2f_emb))))
-        #
-        #     pagerank_f = self.pagerank_lambda * self.sparse_bmm(fact2entity_mat, e2f_softmax_normalized).squeeze(dim=2) + (1 - self.pagerank_lambda) * pagerank_f
-        #
-        #     # STEP 2: combine embeddings from fact
-        #     next_local_entity_emb = torch.cat((next_local_entity_emb, self.fact_scale * f2e_emb), dim=2)
-        #
-        #     # STEP 3: propagate from entities to update question, documents, and facts
-        #     # entity -> query
-        #     query_node_emb = torch.bmm(pagerank_f.unsqueeze(dim=1), e2q_linear(self.linear_drop(next_local_entity_emb)))
-        #     # update entity
-        #     local_entity_emb = self.relu(e2e_linear(self.linear_drop(next_local_entity_emb)))
 
         text_encoder_input = self.word_embedding(query_text)
         text_encoder_output, text_encoder_state = self.text_encoder(text_encoder_input, use_cuda(Variable(torch.zeros(self.layers, batch_size, self.units))))
-
-        # # encode_one_two_triple
-        # one_two_triples_embedding = self.entity_embedding(one_two_triples_id).reshape([batch_size, one_two_triple_num, -1, 3 * self.trans_units])
-        #
-        # # Grow graph embedding
-        # head, relation, tail = torch.split(one_two_triples_embedding, [self.trans_units] * 3, 3)
-        # head_tail = torch.cat((head, tail), 3)
-        # head_tail_transformed = torch.tanh(self.head_tail_linear(head_tail))
-        #
-        # relation_transformed = self.one_two_entity_linear(relation)
-        #
-        # e_weight = torch.sum(relation_transformed * head_tail_transformed, 3)
-        # alpha_weight = self.softmax_d2(e_weight)
-        #
-        # one_two_embed = torch.sum(alpha_weight.unsqueeze(3) * head_tail, 2)
-
 
         # decoder
         decoder_input = self.word_embedding(responses_id)
@@ -246,23 +112,9 @@ class ConceptFlow(nn.Module):
         c_attention_keys = self.attn_c_linear(text_encoder_output)
         c_attention_values = text_encoder_output
 
-        # ce_attention_keys, ce_attention_values = torch.split(self.attn_ce_linear(local_entity_emb), [self.units, self.units], 2)
-        #
-        # co_attention_keys, co_attention_values = torch.split(self.attn_co_linear(one_two_embed), [self.units, self.units], 2)
-        #
-        # only_two_entity_embed = self.entity_linear(self.entity_embedding(only_two_entity))
-        # ct_attention_keys, ct_attention_values = torch.split(self.attn_ct_linear(only_two_entity_embed), [self.units, self.units], 2)
-
-        # ce_attention_keys, ce_attention_values, co_attention_keys, co_attention_values, ct_attention_keys = None, None, None, None, None
-
         decoder_state = text_encoder_state
         decoder_output = use_cuda(torch.empty(0))
         ce_alignments = use_cuda(torch.empty(0))
-
-        # only_two_entity_mask = np.zeros([batch_size, only_two_entity.shape[1]])
-        # for i in range(batch_size):
-        #     only_two_entity_mask[i][0:only_two_entity_length[i]] = 1
-        # only_two_entity_mask = use_cuda(torch.from_numpy(only_two_entity_mask).type('torch.LongTensor'))
 
         context = use_cuda(torch.zeros([batch_size, self.units]))
         # train
@@ -499,7 +351,6 @@ class ConceptFlow(nn.Module):
         nodes_list = []
         for d in paths:
             node_list = []
-            # path_embed = use_cuda(torch.empty(0))
             path_embed = []
             for node in d:
                 path = d[node]
