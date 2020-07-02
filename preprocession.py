@@ -20,7 +20,7 @@ def prepare_data(config):
     data_train, data_test = [], []
 
     if config.is_train:
-        with open('%s/_trainset4bs.txt' % config.data_dir) as f:
+        with open('%s/trainset4bs.txt' % config.data_dir) as f:
             for idx, line in enumerate(f):
                 if idx == 99999: break
 
@@ -28,7 +28,7 @@ def prepare_data(config):
                     print('read train file line %d' % idx)
                 data_train.append(json.loads(line))
     
-    with open('%s/_testset4bs.txt' % config.data_dir) as f:
+    with open('%s/testset4bs.txt' % config.data_dir) as f:
         for line in f:
             data_test.append(json.loads(line))
     
@@ -126,7 +126,7 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
     encoder_len = max([len(item['post']) for item in data]) + 1
     decoder_len = max([len(item['response']) for item in data]) + 1
     # triple_num = max([len(item['all_triples_one_hop']) for item in data])
-    entity_len = 0 if is_inference else max([len(item['graph_nodes']) for item in data])
+    entity_len = max([len(item['graph_nodes']) for item in data])
     # only_two_entity_len = max([len(item['only_two']) for item in data])
     # triple_num_one_two = max([len(item['one_two_triple']) for item in data])
     # triple_len_one_two = max([len(tri) for item in data for tri in item['one_two_triple']])
@@ -195,17 +195,17 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
         response_ent.append(item['response_ent'] + [-1 for j in range(decoder_len - len(item['response_ent']))])
 
         # if not is_inference:
-        if not is_inference:
-            subgraph_tmp = item['graph_nodes']
-            subgraph_len_tmp = len(subgraph_tmp)
-            subgraph_tmp += [1] * (entity_len - len(subgraph_tmp))
-            subgraph.append(subgraph_tmp)
-            subgraph_length.append(subgraph_len_tmp)
+        # if not is_inference:
+        subgraph_tmp = item['graph_nodes']
+        subgraph_len_tmp = len(subgraph_tmp)
+        subgraph_tmp += [1] * (entity_len - len(subgraph_tmp))
+        subgraph.append(subgraph_tmp)
+        subgraph_length.append(subgraph_len_tmp)
 
-        # kb_adj_mat and kb_fact_rel
-            g2l = dict()
-            for i in range(len(subgraph_tmp)):
-                g2l[subgraph_tmp[i]] = i
+    # kb_adj_mat and kb_fact_rel
+        g2l = dict()
+        for i in range(len(subgraph_tmp)):
+            g2l[subgraph_tmp[i]] = i
             #
             # entity2fact_e, entity2fact_f = [], []
             # fact2entity_f, fact2entity_e = [], []
@@ -240,13 +240,13 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
             #         q2e_adj_mats[next_id, g2l[entity2id[item['post'][i]]]] = 1
             #
             # match_entity
-            for i in range(len(item['response_ent'])):
-                if item['response_ent'][i] == -1:
-                    continue
-                if item['response_ent'][i] not in g2l:
-                    continue
-                else:
-                    match_entity[next_id, i] = g2l[item['response_ent'][i]]
+        for i in range(len(item['response_ent'])):
+            if item['response_ent'][i] == -1:
+                continue
+            if item['response_ent'][i] not in g2l:
+                continue
+            else:
+                match_entity[next_id, i] = g2l[item['response_ent'][i]]
         #
         # # only_two_entity
         # only_two_entity_tmp = []

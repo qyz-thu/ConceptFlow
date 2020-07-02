@@ -116,11 +116,11 @@ class ConceptFlow(nn.Module):
         else:
             id2entity = None
 
-        if not self.is_inference:
-            max_graph_size = subgraph.shape[1]
-            subgraph = use_cuda(Variable(torch.from_numpy(subgraph).type('torch.LongTensor'), requires_grad=False))  # todo: remove Variable?
-            match_entity = use_cuda(Variable(torch.from_numpy(match_entity).type('torch.LongTensor'), requires_grad=False))
-            subgraph_emb = self.entity_linear(self.entity_embedding(subgraph))
+        # if not self.is_inference:
+        max_graph_size = subgraph.shape[1]
+        subgraph = use_cuda(Variable(torch.from_numpy(subgraph).type('torch.LongTensor'), requires_grad=False))  # todo: remove Variable?
+        match_entity = use_cuda(Variable(torch.from_numpy(match_entity).type('torch.LongTensor'), requires_grad=False))
+        subgraph_emb = self.entity_linear(self.entity_embedding(subgraph))
 
         batch_size = query_text.shape[0]
         # _, max_only_two_entity = only_two_entity.shape
@@ -265,29 +265,29 @@ class ConceptFlow(nn.Module):
         # only_two_entity_mask = use_cuda(torch.from_numpy(only_two_entity_mask).type('torch.LongTensor'))
 
         context = use_cuda(torch.zeros([batch_size, self.units]))
-        if not self.is_inference:   # train
-            graph_mask = np.zeros([batch_size, subgraph.shape[1]])
-            for i in range(batch_size):
-                graph_mask[i][0: subgraph_len[i]] = 1
-            graph_mask = use_cuda(torch.from_numpy(graph_mask).type('torch.LongTensor'))
+        # train
+        graph_mask = np.zeros([batch_size, subgraph.shape[1]])
+        for i in range(batch_size):
+            graph_mask[i][0: subgraph_len[i]] = 1
+        graph_mask = use_cuda(torch.from_numpy(graph_mask).type('torch.LongTensor'))
 
-            ce_attention_keys = self.graph_attn_linear(subgraph_emb)
-            ce_attention_values = subgraph_emb
-            for t in range(decoder_len):
-                decoder_input_t = torch.cat((decoder_input[:,t,:], context), 1).unsqueeze(1)
-                decoder_output_t, decoder_state = self.decoder(decoder_input_t, decoder_state)
+        ce_attention_keys = self.graph_attn_linear(subgraph_emb)
+        ce_attention_values = subgraph_emb
+        for t in range(decoder_len):
+            decoder_input_t = torch.cat((decoder_input[:,t,:], context), 1).unsqueeze(1)
+            decoder_output_t, decoder_state = self.decoder(decoder_input_t, decoder_state)
 
-                context, ce_alignments_t = self.attention(c_attention_keys, c_attention_values, ce_attention_keys, ce_attention_values,
-                    decoder_output_t.squeeze(1), graph_mask)
-                decoder_output_t = context.unsqueeze(1)
-                decoder_output = torch.cat((decoder_output, decoder_output_t), 1)
-                ce_alignments = torch.cat((ce_alignments, ce_alignments_t.unsqueeze(1)), 1)
+            context, ce_alignments_t = self.attention(c_attention_keys, c_attention_values, ce_attention_keys, ce_attention_values,
+                decoder_output_t.squeeze(1), graph_mask)
+            decoder_output_t = context.unsqueeze(1)
+            decoder_output = torch.cat((decoder_output, decoder_output_t), 1)
+            ce_alignments = torch.cat((ce_alignments, ce_alignments_t.unsqueeze(1)), 1)
 
-        else:   # test
+        if self.is_inference:   # test
             word_index = use_cuda(torch.empty(0).type('torch.LongTensor'))
             decoder_input_t = self.word_embedding(use_cuda(torch.ones([batch_size]).type('torch.LongTensor')))
             context = use_cuda(torch.zeros([batch_size, self.units]))
-            # decoder_state = text_encoder_state
+            decoder_state = text_encoder_state
             selector = use_cuda(torch.empty(0).type('torch.LongTensor'))
 
             current_graph = post_ent
@@ -306,13 +306,13 @@ class ConceptFlow(nn.Module):
                 decoder_input_t, word_index_t, selector_t = self.inference(decoder_output_t, ce_alignments_t, word2id, current_graph, id2entity)
                 word_index = torch.cat((word_index, word_index_t.unsqueeze(1)), 1)
                 selector = torch.cat((selector, selector_t.unsqueeze(1)), 1)
-                if t > 0:
-                    padding_len = ce_alignments_t.shape[1] - ce_alignments.shape[2]
-                    ce_alignments = torch.cat((ce_alignments, use_cuda(torch.zeros([batch_size, t, padding_len]))), 2)
-                decoder_output = torch.cat((decoder_output, decoder_output_t), 1)
-                ce_alignments = torch.cat((ce_alignments, ce_alignments_t.unsqueeze(1)), 1)
-
-            max_graph_size = max([len(c) for c in current_graph])
+            #     if t > 0:
+            #         padding_len = ce_alignments_t.shape[1] - ce_alignments.shape[2]
+            #         ce_alignments = torch.cat((ce_alignments, use_cuda(torch.zeros([batch_size, t, padding_len]))), 2)
+            #     decoder_output = torch.cat((decoder_output, decoder_output_t), 1)
+            #     ce_alignments = torch.cat((ce_alignments, ce_alignments_t.unsqueeze(1)), 1)
+            #
+            # max_graph_size = max([len(c) for c in current_graph])
 
         ### Total Loss
         decoder_mask = np.zeros([batch_size, decoder_len])
@@ -321,25 +321,41 @@ class ConceptFlow(nn.Module):
         decoder_mask = use_cuda(torch.from_numpy(decoder_mask).type('torch.LongTensor'))
 
         graph_entities = use_cuda(torch.zeros(batch_size, decoder_len, max_graph_size))
-        if not self.is_inference:
-            for b in range(batch_size):
-                for d in range(decoder_len):
-                    if match_entity[b][d] != -1:
-                        graph_entities[b][d][match_entity[b][d]] = 1
-        else:
+        # if not self.is_inference:
+        for b in range(batch_size):
+            for d in range(decoder_len):
+                if match_entity[b][d] != -1:
+                    graph_entities[b][d][match_entity[b][d]] = 1
+        # else:
+        #     response_ent_num = 0
+        #     found_num = 0
+        #     for b in range(batch_size):
+        #         g2l = dict()
+        #         for i in range(len(current_graph[b])):
+        #             if current_graph[b][i] > 0:
+        #                 g2l[current_graph[b][i]] = i
+        #         for d in range(decoder_len):
+        #             if response_ent[b][d] == -1:
+        #                 continue
+        #             response_ent_num += 1
+        #             if response_ent[b][d] in g2l:
+        #                 graph_entities[b][d][g2l[response_ent[b][d]]] = 1
+        #                 found_num += 1
+
+        # get recall
+        if self.is_inference:
             response_ent_num = 0
             found_num = 0
             for b in range(batch_size):
-                g2l = dict()
+                entities = set()
                 for i in range(len(current_graph[b])):
                     if current_graph[b][i] > 0:
-                        g2l[current_graph[b][i]] = i
+                        entities.add(current_graph[b][i])
                 for d in range(decoder_len):
                     if response_ent[b][d] == -1:
                         continue
                     response_ent_num += 1
-                    if response_ent[b][d] in g2l:
-                        graph_entities[b][d][g2l[response_ent[b][d]]] = 1
+                    if response_ent[b][d] in entities:
                         found_num += 1
 
         use_entities_local = torch.sum(graph_entities, [2])
