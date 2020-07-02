@@ -90,9 +90,7 @@ class ConceptFlow(nn.Module):
 
         batch_size = query_text.shape[0]
 
-
         # numpy to tensor
-
         query_text = use_cuda(Variable(torch.from_numpy(query_text).type('torch.LongTensor'), requires_grad=False))
         response_text = use_cuda(Variable(torch.from_numpy(response_text).type('torch.LongTensor'), requires_grad=False))
         responses_length = use_cuda(Variable(torch.Tensor(responses_length).type('torch.LongTensor'), requires_grad=False))
@@ -216,7 +214,8 @@ class ConceptFlow(nn.Module):
             self.total_loss(decoder_output, responses_target, decoder_mask, ce_alignments, use_entities_local, graph_entities)
 
         if self.is_inference:
-            return decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_entity, word_neg_num, local_neg_num, found_num / response_ent_num
+            return decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_entity, word_neg_num, local_neg_num, \
+                   found_num / response_ent_num, word_index.detach().cpu().numpy().tolist()
         return decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_entity, word_neg_num, local_neg_num
 
     def inference(self, decoder_output_t, ce_alignments_t, word2id, local_entity, id2entity):

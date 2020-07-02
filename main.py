@@ -56,14 +56,6 @@ def run(model, data_train, config, word2id, entity2id, is_inference=False):
     batched_data = gen_batched_data(data_train, config, word2id, entity2id, is_inference)
 
     return model(batched_data)
-    # if is_inference == True:
-    #     decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, sentence_ppx_only_two, word_index, word_neg_num, \
-    #         local_neg_num, only_two_neg_num, selector = model(batched_data)
-    #     return decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, sentence_ppx_only_two, word_index, word_neg_num, local_neg_num, only_two_neg_num, selector
-    # else:
-    #     # decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, sentence_ppx_only_two, word_neg_num, local_neg_num, only_two_neg_num = model(batched_data)
-    #     # return decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, sentence_ppx_only_two, word_neg_num, local_neg_num, only_two_neg_num
-    #     return model(batched_data)
 
 
 def train(config, model, data_train, data_test, word2id, entity2id, model_optimizer):
@@ -130,12 +122,13 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, is_test=False,
     for key in word2id.keys():
         id2word[word2id[key]] = key
 
-    def write_batch_res_text(word_index, id2word, selector = None):
+    def write_batch_res_text(word_index, id2word, selector=None):
         w = open(config.generated_text_name + '_' + str(epoch) + '.txt', 'a')
         batch_size = len(word_index)
         decoder_len = len(word_index[0])
         text = []
-        if selector != None:
+        # if selector != None:
+        if True:
             for i in range(batch_size):
                 tmp_dict = dict()
                 tmp = []
@@ -161,7 +154,7 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, is_test=False,
 
     for iteration in range(len(data_test) // config.batch_size):
         data = data_test[(iteration * config.batch_size):(iteration * config.batch_size + config.batch_size)]
-        decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, word_neg_num, entity_neg_num, recall = \
+        decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, word_neg_num, entity_neg_num, recall, word_index = \
             run(model, data, config, word2id, entity2id, model.is_inference)
         sentence_ppx_loss += torch.sum(sentence_ppx).data
         entity_recall += recall
@@ -170,8 +163,10 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, is_test=False,
         word_cut += word_neg_num
         local_cut += entity_neg_num
 
+        write_batch_res_text(word_index, id2word)
+
         if count % 50 == 0:
-            print ("iteration for evaluate:", iteration, "Loss:", decoder_loss.data)
+            print ("iteration for evaluate:", iteration, "loss:", decoder_loss.data)
         count += 1
     entity_recall /= count
 
