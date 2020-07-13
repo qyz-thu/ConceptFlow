@@ -72,7 +72,7 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
         count = 0
         for iteration in range(len(data_train) // config.batch_size):
             data = data_train[(iteration * config.batch_size):(iteration * config.batch_size + config.batch_size)]
-            decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, word_neg_num, entity_neg_num = \
+            decoder_loss, retrieval_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, word_neg_num, entity_neg_num = \
                 run(model, data, config, word2id, entity2id)
             sentence_ppx_loss += torch.sum(sentence_ppx).data
             sentence_ppx_word_loss += torch.sum(sentence_ppx_word).data
@@ -81,13 +81,14 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
             local_cut += entity_neg_num
 
             model_optimizer.zero_grad()
-            decoder_loss.backward()
+            loss = decoder_loss + retrieval_loss
+            loss.backward()
             torch.nn.utils.clip_grad_norm(model.parameters(), config.max_gradient_norm)
             model_optimizer.step()
             if count % 50 == 0:
-                print ("iteration:", iteration, "Loss:", decoder_loss.data)
+                print ("iteration:", iteration, "decode loss:", decoder_loss.data, "retr loss:", retrieval_loss.data)
                 with open(config.log_dir, 'a') as f:
-                    f.write("iteration: %d Loss: %.4f\n" % (iteration, decoder_loss.data))
+                    f.write("iteration: %d Loss: %.4f\n" % (iteration, loss.data))
             count += 1
 
         print ("perplexity for epoch", epoch + 1, ":", np.exp(sentence_ppx_loss.cpu() / len(data_train)), " ppx_word: ", \

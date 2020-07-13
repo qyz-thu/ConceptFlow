@@ -4,6 +4,8 @@ import numpy as np
 from torch.autograd import Variable
 import torch.nn as nn
 from torch.nn import utils as nn_utils
+import dgl
+from dgl.nn import GATConv
 
 VERY_SMALL_NUMBER = 1e-10
 VERY_NEG_NUMBER = -100000000000
@@ -14,6 +16,21 @@ def use_cuda(var):
         return var.cuda()
     else:
         return var
+
+
+class GAT(nn.Module):
+	def __init__(self, features):
+		super(GAT, self).__init__()
+		self.gat1 = GATConv(in_feats=features, out_feats=features, num_heads=1)
+		self.gat2 = GATConv(in_feats=features, out_feats=features, num_heads=1)
+
+	def forward(self, g, inputs):
+		if g.number_of_edges() == 0:
+			return inputs
+		h = self.gat1(g, inputs)
+		h = torch.relu(h)
+		h = self.gat2(g, h)
+		return h
 
 
 class ConceptFlow(nn.Module):
@@ -45,11 +62,13 @@ class ConceptFlow(nn.Module):
         self.entity_embedding.weight.requires_grad = True
         self.entity_linear = nn.Linear(in_features=self.trans_units, out_features=self.trans_units)
 
+        self.softmax_d0 = nn.Softmax(dim=0)
         self.softmax_d1 = nn.Softmax(dim=1)
         self.softmax_d2 = nn.Softmax(dim=2)
         self.relu = nn.ReLU()
 
         self.text_encoder = nn.GRU(input_size=self.embed_units, hidden_size=self.units, num_layers=self.layers, batch_first=True)
+        self.graph_decoer = nn.LSTM(input_size=self.units, hidden_size=self.units, num_layers=self.layers, batch_first=True)
         self.decoder = nn.GRU(input_size=self.units + self.embed_units, hidden_size=self.units, num_layers=self.layers, batch_first=True)
 
         self.attn_c_linear = nn.Linear(in_features=self.units, out_features=self.units, bias=False)
@@ -57,6 +76,13 @@ class ConceptFlow(nn.Module):
 
         # matrix for graph attention
         self.graph_attn_linear = nn.Linear(in_features=self.trans_units, out_features=self.units, bias=False)
+        # linear layer to convert z in graph decoder
+        self.graph_convt_linear = nn.Linear(in_features=self.trans_units + self.units, out_features=self.units)
+
+        self.graph_prob_linear = nn.Linear(in_features=self.trans_units, out_features=self.units, bias=False)
+
+        # GAT
+        self.GAT = GAT(self.trans_units)
 
         # Loss
         self.logits_linear = nn.Linear(in_features=self.units, out_features=self.symbols)
@@ -67,10 +93,13 @@ class ConceptFlow(nn.Module):
         response_text = batch_data['response_text']
         responses_length = batch_data['responses_length']
         post_ent = batch_data['post_ent']
+        post_ent_len = batch_data['post_ent_len']
         response_ent = batch_data['response_ent']
         subgraph = batch_data['subgraph']
         subgraph_len = batch_data['subgraph_size']
         match_entity = batch_data['match_entity']
+        paths = batch_data['paths']
+        edges = batch_data['edges']
 
 
         if self.is_inference == True:
@@ -83,10 +112,10 @@ class ConceptFlow(nn.Module):
             id2entity = None
 
         # if not self.is_inference:
-        max_graph_size = subgraph.shape[1]
-        subgraph = use_cuda(Variable(torch.from_numpy(subgraph).type('torch.LongTensor'), requires_grad=False))  # todo: remove Variable?
+        max_graph_size = max(subgraph_len)
+        # subgraph = use_cuda(Variable(torch.from_numpy(subgraph).type('torch.LongTensor'), requires_grad=False))  # todo: remove Variable?
         match_entity = use_cuda(Variable(torch.from_numpy(match_entity).type('torch.LongTensor'), requires_grad=False))
-        subgraph_emb = self.entity_linear(self.entity_embedding(subgraph))
+        # subgraph_emb = self.entity_linear(self.entity_embedding(subgraph))
 
         batch_size = query_text.shape[0]
 
@@ -100,10 +129,43 @@ class ConceptFlow(nn.Module):
         responses_target = response_text
         responses_id = torch.cat((use_cuda(torch.ones([batch_size, 1]).type('torch.LongTensor')),torch.split(response_text, [decoder_len - 1, 1], 1)[0]), 1)
 
+        # text encoder
         text_encoder_input = self.word_embedding(query_text)
         text_encoder_output, text_encoder_state = self.text_encoder(text_encoder_input, use_cuda(Variable(torch.zeros(self.layers, batch_size, self.units))))
 
-        # decoder
+        # graph decoder
+        if not self.is_inference:
+            retrieval_loss = use_cuda(torch.zeros([1]))
+            total_path_len = 0
+            for b in range(batch_size):
+                for p in paths[b]:
+                    for path in p:
+                        graph_context = use_cuda(torch.zeros(1, self.units))
+                        graph_decoder_state = self.init_hidden(self.layers, 1, self.units)
+                        for i, e in enumerate(path):
+                            if e == 0:
+                                break
+                            embed = self.entity_embedding(use_cuda(torch.LongTensor([e])))
+                            graph_input = self.graph_convt_linear(torch.cat([graph_context, embed], dim=1)).unsqueeze(1)
+                            graph_output, graph_decoder_state = self.graph_decoer(graph_input, graph_decoder_state)
+                            candidates = list(self.adj_table[e]) + [0]  # use the '_NONE' token as EOP
+                            index = len(candidates) - 1
+                            for j in range(len(candidates)):
+                                if path[i + 1] == candidates[j]:
+                                    index = j
+                                    break
+                            candidate_embed = self.entity_embedding(use_cuda(torch.LongTensor(candidates)))
+                            prob = self.softmax_d0(torch.sum(self.graph_prob_linear(candidate_embed) * graph_output.squeeze(0), 1))
+                            retrieval_loss += -torch.log(1e-12 + prob[index])
+                            total_path_len += 1
+            retrieval_loss /= total_path_len
+            # get subgraph
+            graph_list = self.construct_graph(subgraph, edges)
+            batched_graph = dgl.batch(graph_list)
+            graph_embed = self.gnn(batched_graph, batched_graph.ndata['h'])
+
+
+        # text decoder input
         decoder_input = self.word_embedding(responses_id)
 
         # attention
@@ -116,13 +178,13 @@ class ConceptFlow(nn.Module):
 
         context = use_cuda(torch.zeros([batch_size, self.units]))
         # train
-        graph_mask = np.zeros([batch_size, subgraph.shape[1]])
+        graph_mask = np.zeros([batch_size, graph_embed.shape[1]])
         for i in range(batch_size):
             graph_mask[i][0: subgraph_len[i]] = 1
         graph_mask = use_cuda(torch.from_numpy(graph_mask).type('torch.LongTensor'))
 
-        ce_attention_keys = self.graph_attn_linear(subgraph_emb)
-        ce_attention_values = subgraph_emb
+        ce_attention_keys = self.graph_attn_linear(graph_embed)
+        ce_attention_values = graph_embed
         for t in range(decoder_len):
             decoder_input_t = torch.cat((decoder_input[:,t,:], context), 1).unsqueeze(1)
             decoder_output_t, decoder_state = self.decoder(decoder_input_t, decoder_state)
@@ -156,13 +218,6 @@ class ConceptFlow(nn.Module):
                 decoder_input_t, word_index_t, selector_t = self.inference(decoder_output_t, ce_alignments_t, word2id, current_graph, id2entity)
                 word_index = torch.cat((word_index, word_index_t.unsqueeze(1)), 1)
                 selector = torch.cat((selector, selector_t.unsqueeze(1)), 1)
-            #     if t > 0:
-            #         padding_len = ce_alignments_t.shape[1] - ce_alignments.shape[2]
-            #         ce_alignments = torch.cat((ce_alignments, use_cuda(torch.zeros([batch_size, t, padding_len]))), 2)
-            #     decoder_output = torch.cat((decoder_output, decoder_output_t), 1)
-            #     ce_alignments = torch.cat((ce_alignments, ce_alignments_t.unsqueeze(1)), 1)
-            #
-            # max_graph_size = max([len(c) for c in current_graph])
 
         ### Total Loss
         decoder_mask = np.zeros([batch_size, decoder_len])
@@ -176,21 +231,6 @@ class ConceptFlow(nn.Module):
             for d in range(decoder_len):
                 if match_entity[b][d] != -1:
                     graph_entities[b][d][match_entity[b][d]] = 1
-        # else:
-        #     response_ent_num = 0
-        #     found_num = 0
-        #     for b in range(batch_size):
-        #         g2l = dict()
-        #         for i in range(len(current_graph[b])):
-        #             if current_graph[b][i] > 0:
-        #                 g2l[current_graph[b][i]] = i
-        #         for d in range(decoder_len):
-        #             if response_ent[b][d] == -1:
-        #                 continue
-        #             response_ent_num += 1
-        #             if response_ent[b][d] in g2l:
-        #                 graph_entities[b][d][g2l[response_ent[b][d]]] = 1
-        #                 found_num += 1
 
         # get recall
         if self.is_inference:
@@ -216,7 +256,7 @@ class ConceptFlow(nn.Module):
         if self.is_inference:
             return decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_entity, word_neg_num, local_neg_num, \
                    found_num / response_ent_num, word_index.detach().cpu().numpy().tolist()
-        return decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_entity, word_neg_num, local_neg_num
+        return decoder_loss, retrieval_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_entity, word_neg_num, local_neg_num
 
     def inference(self, decoder_output_t, ce_alignments_t, word2id, local_entity, id2entity):
         '''
@@ -395,43 +435,69 @@ class ConceptFlow(nn.Module):
         return (use_cuda(Variable(torch.zeros(num_layer, batch_size, hidden_size))),
                 use_cuda(Variable(torch.zeros(num_layer, batch_size, hidden_size))))
 
-    def sparse_bmm(self, X, Y):
-        """Batch multiply X and Y where X is sparse, Y is dense.
-        Args:
-            X: Sparse tensor of size BxMxN. Consists of two tensors,
-                I:3xZ indices, and V:1xZ values.
-            Y: Dense tensor of size BxNxK.
-        Returns:
-            batched-matmul(X, Y): BxMxK
-        """
-        class LeftMMFixed(torch.autograd.Function):
-            """
-            Implementation of matrix multiplication of a Sparse Variable with a Dense Variable, returning a Dense one.
-            This is added because there's no autograd for sparse yet. No gradient computed on the sparse weights.
-            """
+    def construct_graph(self, subgraphs, edges):
+        graph_list = []
+        for i in range(len(subgraphs)):
+            g2l = dict()
+            graph = dgl.DGLGraph()
+            graph.add_nodes(len(subgraphs[i]))
+            for index in range(len(subgraphs[i])):
+                g2l[subgraphs[i][index]] = index
+            edge_heads, edge_tails = [g2l[u] for u in edges[i][0]], [g2l[u] for u in edges[i][1]]
+            graph.add_edges(edge_heads, edge_tails)
+            node_embed = self.entity_embedding(use_cuda(torch.LongTensor(subgraphs[i])))
+            graph.ndata['h'] = node_embed
+            graph_list.append(graph)
+        return graph_list
 
-            def __init__(self):
-                super(LeftMMFixed, self).__init__()
-                self.sparse_weights = None
+    def gnn(self, graph, input):
+        gat_output = self.GAT(graph, input)
+        graph.ndata['h'] = gat_output
+        graph_list = dgl.unbatch(graph)
 
-            def forward(self, sparse_weights, x):
-                if self.sparse_weights is None:
-                    self.sparse_weights = sparse_weights
-                return torch.mm(self.sparse_weights, x)
+        gat_output = []
+        for i in range(len(graph_list)):
+            node_features = graph_list[i].ndata['h'].squeeze(1)
+            gat_output.append(node_features)
+        return nn_utils.rnn.pad_sequence(gat_output, batch_first=True, padding_value=0)
 
-            def backward(self, grad_output):
-                sparse_weights = self.sparse_weights
-                return None, torch.mm(sparse_weights.t(), grad_output)
-
-        I = X._indices()
-        V = X._values()
-        B, M, N = X.size()
-        _, _, K = Y.size()
-        Z = I.size()[1]
-        lookup = Y[I[0, :], I[2, :], :]
-        X_I = torch.stack((I[0, :] * M + I[1, :], use_cuda(torch.arange(Z).type(torch.LongTensor))), 0)
-        S = use_cuda(Variable(torch.sparse.FloatTensor(X_I, V, torch.Size([B * M, Z])), requires_grad=False))
-        prod_op = LeftMMFixed()
-        prod = prod_op(S, lookup)
-        return prod.view(B, M, K)
+    # def sparse_bmm(self, X, Y):
+    #     """Batch multiply X and Y where X is sparse, Y is dense.
+    #     Args:
+    #         X: Sparse tensor of size BxMxN. Consists of two tensors,
+    #             I:3xZ indices, and V:1xZ values.
+    #         Y: Dense tensor of size BxNxK.
+    #     Returns:
+    #         batched-matmul(X, Y): BxMxK
+    #     """
+    #     class LeftMMFixed(torch.autograd.Function):
+    #         """
+    #         Implementation of matrix multiplication of a Sparse Variable with a Dense Variable, returning a Dense one.
+    #         This is added because there's no autograd for sparse yet. No gradient computed on the sparse weights.
+    #         """
+    #
+    #         def __init__(self):
+    #             super(LeftMMFixed, self).__init__()
+    #             self.sparse_weights = None
+    #
+    #         def forward(self, sparse_weights, x):
+    #             if self.sparse_weights is None:
+    #                 self.sparse_weights = sparse_weights
+    #             return torch.mm(self.sparse_weights, x)
+    #
+    #         def backward(self, grad_output):
+    #             sparse_weights = self.sparse_weights
+    #             return None, torch.mm(sparse_weights.t(), grad_output)
+    #
+    #     I = X._indices()
+    #     V = X._values()
+    #     B, M, N = X.size()
+    #     _, _, K = Y.size()
+    #     Z = I.size()[1]
+    #     lookup = Y[I[0, :], I[2, :], :]
+    #     X_I = torch.stack((I[0, :] * M + I[1, :], use_cuda(torch.arange(Z).type(torch.LongTensor))), 0)
+    #     S = use_cuda(Variable(torch.sparse.FloatTensor(X_I, V, torch.Size([B * M, Z])), requires_grad=False))
+    #     prod_op = LeftMMFixed()
+    #     prod = prod_op(S, lookup)
+    #     return prod.view(B, M, K)
 

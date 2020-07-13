@@ -20,7 +20,7 @@ def prepare_data(config):
     data_train, data_test = [], []
 
     if config.is_train:
-        with open('%s/_trainset4bs.txt' % config.data_dir) as f:
+        with open('%s/trainset4bs.txt' % config.data_dir) as f:
             for idx, line in enumerate(f):
                 if idx == 99999: break
 
@@ -123,14 +123,17 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
 
     encoder_len = max([len(item['post']) for item in data]) + 1
     decoder_len = max([len(item['response']) for item in data]) + 1
-    entity_len = max([len(item['graph_nodes']) for item in data])
+    entity_len = max([len(item['paths']) for item in data])
     posts_id = np.full((len(data), encoder_len), 0, dtype=int)  # todo: change to np.zeros?
     responses_id = np.full((len(data), decoder_len), 0, dtype=int)
     post_ent = []
+    post_ent_len = []
     response_ent = []
     responses_length = []
     subgraph = []
     subgraph_length = []
+    paths = []
+    edges = []
     match_entity = np.full((len(data), decoder_len), -1, dtype=int)
 
     def padding(sent, l):
@@ -159,52 +162,31 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
 
         # post&response entities
         post_ent.append(item['post_ent'])
+        post_ent_len.append(len(item['post_ent']))
         response_ent.append(item['response_ent'] + [-1 for j in range(decoder_len - len(item['response_ent']))])
 
+        # ground-truth path
+        for i in range(len(item['paths'])):
+            for p in range(len(item['paths'][i])):
+                item['paths'][i][p].append(0)
+        paths.append(item['paths'])
+
         # if not is_inference:
-        subgraph_tmp = item['graph_nodes']
+        subgraph_tmp = item['subgraph']
         subgraph_len_tmp = len(subgraph_tmp)
-        subgraph_tmp += [1] * (entity_len - len(subgraph_tmp))
+        # subgraph_tmp += [1] * (entity_len - len(subgraph_tmp))
+        # for i in range(len(subgraph_tmp)):
+        #     subgraph_len_tmp.append(len(subgraph_tmp[i]))
+        #     subgraph_tmp[i] += [1] * (beamsearch_width - len(subgraph_tmp[i]))
         subgraph.append(subgraph_tmp)
         subgraph_length.append(subgraph_len_tmp)
+
+        edges.append(item['edges'])
 
         g2l = dict()
         for i in range(len(subgraph_tmp)):
             g2l[subgraph_tmp[i]] = i
-            #
-            # entity2fact_e, entity2fact_f = [], []
-            # fact2entity_f, fact2entity_e = [], []
 
-            # tmp_count = 0
-            # for i in range(len(item['all_triples_one_hop'])):
-            #     sbj = csk_triples[item['all_triples_one_hop'][i]].split()[0][:-1]
-            #     rel = csk_triples[item['all_triples_one_hop'][i]].split()[1][:-1]
-            #     obj = csk_triples[item['all_triples_one_hop'][i]].split()[2]
-            #
-            #     if (sbj not in entity2id) or (obj not in entity2id):
-            #         continue
-            #     if (entity2id[sbj] not in g2l) or (entity2id[obj] not in g2l):
-            #         continue
-            #
-            #     entity2fact_e += [g2l[entity2id[sbj]]]
-            #     entity2fact_f += [tmp_count]
-            #     fact2entity_f += [tmp_count]
-            #     fact2entity_e += [g2l[entity2id[obj]]]
-            #     kb_fact_rels[next_id, tmp_count] = entity2id[rel]
-            #     tmp_count += 1
-            #
-            # kb_adj_mats[next_id] = (np.array(entity2fact_f, dtype=int), np.array(entity2fact_e, dtype=int), np.array([1.0] * len(entity2fact_f))), (np.array(fact2entity_e, dtype=int), np.array(fact2entity_f, dtype=int), np.array([1.0] * len(fact2entity_e)))
-            #
-            # # q2e_adj_mat
-            # for i in range(len(item['post_triples'])):
-            #     if item['post_triples'][i] == 0:
-            #         continue
-            #     elif item['post'][i] not in entity2id:
-            #         continue
-            #     else:
-            #         q2e_adj_mats[next_id, g2l[entity2id[item['post'][i]]]] = 1
-            #
-            # match_entity
         for i in range(len(item['response_ent'])):
             if item['response_ent'][i] == -1:
                 continue
@@ -219,8 +201,11 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                     'response_text': np.array(responses_id),
                     'subgraph': np.array(subgraph),
                     'subgraph_size': subgraph_length,
+                    'paths': paths,
+                    'edges': edges,
                     'responses_length': responses_length,
                     'post_ent': post_ent,
+                    'post_ent_len': post_ent_len,
                     'response_ent': response_ent,
                     'match_entity': np.array(match_entity),
                     'word2id': word2id,
