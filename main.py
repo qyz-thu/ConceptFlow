@@ -8,6 +8,7 @@ import warnings
 import yaml
 import os
 import pynvml
+import sys
 warnings.filterwarnings('ignore')
 
 csk_triples, csk_entities, kb_dict = [], [], []
@@ -71,6 +72,7 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
 
         count = 0
         for iteration in range(len(data_train) // config.batch_size):
+            count += 1
             data = data_train[(iteration * config.batch_size):(iteration * config.batch_size + config.batch_size)]
             decoder_loss, retrieval_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, word_neg_num, entity_neg_num = \
                 run(model, data, config, word2id, entity2id)
@@ -89,7 +91,6 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
                 print ("iteration:", iteration, "decode loss:", decoder_loss.data, "retr loss:", retrieval_loss.data)
                 with open(config.log_dir, 'a') as f:
                     f.write("iteration: %d Loss: %.4f\n" % (iteration, loss.data))
-            count += 1
 
         print ("perplexity for epoch", epoch + 1, ":", np.exp(sentence_ppx_loss.cpu() / len(data_train)), " ppx_word: ", \
             np.exp(sentence_ppx_word_loss.cpu() / (len(data_train) - int(word_cut))), " ppx_entity: ", \
@@ -154,6 +155,7 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, is_test=False,
         w.close()
 
     for iteration in range(len(data_test) // config.batch_size):
+        count += 1
         data = data_test[(iteration * config.batch_size):(iteration * config.batch_size + config.batch_size)]
         decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, word_neg_num, entity_neg_num, recall, word_index = \
             run(model, data, config, word2id, entity2id, model.is_inference)
@@ -168,7 +170,6 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, is_test=False,
 
         if count % 50 == 0:
             print ("iteration for evaluate:", iteration, "loss:", decoder_loss.data)
-        count += 1
     entity_recall /= count
 
     model.is_inference = False
@@ -207,7 +208,7 @@ def main():
         if info.free > max_space:
             max_space = info.free
             device_index = i
-    if max_space < 5e9:
+    if max_space < 1e9:
         print("no gpu with sufficient memory currently.")
         sys.exit(0)
     os.environ['CUDA_VISIBLE_DEVICES'] = str(device_index)

@@ -20,7 +20,7 @@ def prepare_data(config):
     data_train, data_test = [], []
 
     if config.is_train:
-        with open('%s/trainset4bs.txt' % config.data_dir) as f:
+        with open('%s/__trainset4bs.txt' % config.data_dir) as f:
             for idx, line in enumerate(f):
                 if idx == 99999: break
 
@@ -167,8 +167,7 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
 
         # ground-truth path
         for i in range(len(item['paths'])):
-            for p in range(len(item['paths'][i])):
-                item['paths'][i][p].append(0)
+            item['paths'][i].append(0)
         paths.append(item['paths'])
 
         # if not is_inference:

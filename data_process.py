@@ -67,16 +67,16 @@ def process_train():
         adj_table[id2].add(id1)
 
     start_time = time.time()
-    f_w = open(data_dir + '_trainset4bs.txt', 'w')
+    f_w = open(data_dir + '_testset4bs.txt', 'w')
     # log = open(data_dir + 'checklist.txt', 'w')
     three_hop = 0
     four_hop = 0
     five_hop = 0
-    with open(data_dir + 'trainset.txt') as f:
+    with open(data_dir + 'testset.txt') as f:
         for i, line in enumerate(f):
             if i % 1000 == 0:
                 print('processed %d samples, time used: %.2f' % (i, time.time() - start_time))
-            if i > 499: break
+            if i > 999: break
             data = json.loads(line)
             post_ent = list()
             response_ent = [-1 for j in range(len(data['response']))]
@@ -169,42 +169,39 @@ def process_test():
 
 def main():
     global entity_list, entity2id
-    # entity_list = ['_NONE', '_PAD_H', '_PAD_R', '_PAD_T', '_NAF_H', '_NAF_R', '_NAF_T']
-    # entity2id = dict()
-    # with open(data_dir + 'entity.txt') as f:
-    #     for i, line in enumerate(f):
-    #         e = line.strip()
-    #         entity2id[e] = len(entity_list)
-    #         entity_list.append(e)
-    # process_train()
-    with open(data_dir + 'trainset4bs.txt') as f:
+    entity_list = ['_NONE', '_PAD_H', '_PAD_R', '_PAD_T', '_NAF_H', '_NAF_R', '_NAF_T']
+    entity2id = dict()
+    with open(data_dir + 'entity.txt') as f:
+        for i, line in enumerate(f):
+            e = line.strip()
+            entity2id[e] = len(entity_list)
+            entity_list.append(e)
+    process_train()
+    with open(data_dir + '_testset4bs.txt') as f:
         datas = f.readlines()
-    with open(data_dir + '__trainset4bs.txt', 'w') as f:
+    with open(data_dir + '_testset4bs.txt', 'w') as f:
         for data in datas:
             data = json.loads(data)
             edge_list = dict()
             paths = data['paths']
             subgraph = set()
-            for pp in paths:
-                for path in pp:
-                    prior = None
-                    for e in path:
-                        if prior:
-                            head = max(prior, e)
-                            tail = prior + e - head
-                            if head not in edge_list:
-                                edge_list[head] = set()
-                            edge_list[head].add(tail)
-                        prior = e
-                        subgraph.add(e)
+            for path in paths:
+                prior = None
+                for e in path:
+                    if prior:
+                        head = max(prior, e)
+                        tail = prior + e - head
+                        if head not in edge_list:
+                            edge_list[head] = set()
+                        edge_list[head].add(tail)
+                    prior = e
+                    subgraph.add(e)
             subgraph = list(subgraph)
             edges = [[], []]
             for e in edge_list:
                 for v in edge_list[e]:
-                    edges[0].append(e)
-                    edges[0].append(v)
-                    edges[1].append(v)
-                    edges[1].append(e)
+                    edges[0] += [e, v]
+                    edges[1] += [v, e]
             data['subgraph'] = subgraph
             data['edges'] = edges
             f.write(json.dumps(data) + '\n')

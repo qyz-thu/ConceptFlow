@@ -16,7 +16,7 @@ gnn_layers: 3
 fact_dropout: 0.0
 fact_scale: 1
 pagerank_lambda: 0.8
-beam_search_width: 100
+beam_search_width: 10
 max_hop: 3
 result_dir_name: "result.txt"
 model_save_name: "model"
