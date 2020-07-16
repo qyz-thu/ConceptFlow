@@ -115,9 +115,7 @@ class ConceptFlow(nn.Module):
         # subgraph = use_cuda(Variable(torch.from_numpy(subgraph).type('torch.LongTensor'), requires_grad=False))  # todo: remove Variable?
         # match_entity = use_cuda(Variable(torch.from_numpy(match_entity).type('torch.LongTensor'), requires_grad=False))
         # subgraph_emb = self.entity_linear(self.entity_embedding(subgraph))
-
         batch_size = query_text.shape[0]
-
         # numpy to tensor
         query_text = use_cuda(Variable(torch.from_numpy(query_text).type('torch.LongTensor'), requires_grad=False))
         response_text = use_cuda(Variable(torch.from_numpy(response_text).type('torch.LongTensor'), requires_grad=False))
@@ -169,7 +167,7 @@ class ConceptFlow(nn.Module):
                 for ent in post_ent[b]:
                     graph_input = use_cuda(torch.zeros(1, 1, self.units))
                     graph_decoder_state = self.init_hidden(self.layers, 1, self.units)
-                    path_probs = [1 for i in range(self.bs_width)]
+                    path_probs = [0 for i in range(self.bs_width)]
                     paths = [[ent] for i in range(self.bs_width)]
                     for path_len in range(self.max_hop):
                         if path_len == 0:
@@ -179,6 +177,7 @@ class ConceptFlow(nn.Module):
                             candidates = list(self.adj_table[ent]) + [0]
                             candidate_embed = self.entity_embedding(use_cuda(torch.LongTensor(candidates)))
                             prob = self.softmax_d0(torch.sum(self.graph_prob_linear(candidate_embed) * graph_output.squeeze(0), 1))
+                            # prob = nn.functional.sigmoid(torch.sum(self.graph_prob_linear(candidate_embed) * graph_output.squeeze(0), 1))
                             prob = prob.detach().cpu().numpy().tolist()
                             sorted_prob = [[i, prob[i]] for i in range(len(prob))]
                             sorted_prob.sort(key=lambda x: x[1], reverse=True)
@@ -188,9 +187,7 @@ class ConceptFlow(nn.Module):
                             for i in range(self.bs_width):
                                 paths[i].append(next_ent[i] if i < len(next_ent) else 0)
                                 if i < len(sorted_prob) and candidates[sorted_prob[i][0]] > 0:
-                                    path_probs[i] *= sorted_prob[i][1]
-
-
+                                    path_probs[i] += np.log(sorted_prob[i][1] + 1e-12)
                             # get decoder state for beam search by duplicating bs_width times
                             batched_state1, batched_state2 = graph_decoder_state[0].clone(), graph_decoder_state[1].clone()
                             batched_graph_input = graph_input.clone()
@@ -223,14 +220,12 @@ class ConceptFlow(nn.Module):
                             logits = torch.sum(self.graph_prob_linear(candidate_embed) * graph_output.squeeze(0), 1)
                             all_logits = torch.cat([all_logits, logits], dim=0)
 
-                        all_probs = self.softmax_d0(all_logits + 1e-12).detach().cpu().numpy().tolist()
-                        all_probs = [all_probs[i] * past_probs[i] for i in range(len(all_probs))]
+                        all_probs = self.softmax_d0(all_logits).detach().cpu().numpy().tolist()
+                        # all_probs = nn.functional.sigmoid(all_logits).detach().cpu().numpy().tolist()
+                        all_probs = [all_probs[i] + np.log(past_probs[i] + 1e-12) for i in range(len(all_probs))]
                         sorted_prob = [[i, all_probs[i]] for i in range(len(all_probs))]
                         sorted_prob.sort(key=lambda x: x[1], reverse=True)
                         sorted_prob = sorted_prob[: self.bs_width]
-                        # paths = [path_candidates[x[0]] for x in sorted_prob]
-                        # path_probs = [past_probs[x[0]] for x in sorted_prob]
-                        # paths, path_probs = [], []
                         index = 0
                         new_ent = []
                         for i in range(self.bs_width):
