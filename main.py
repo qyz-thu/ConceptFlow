@@ -4,6 +4,7 @@ import json
 from model import ConceptFlow, use_cuda
 from preprocession import prepare_data, build_vocab, gen_batched_data
 import torch
+from torch.utils.tensorboard import SummaryWriter
 import warnings
 import yaml
 import os
@@ -43,6 +44,7 @@ class Config():
         self.pagerank_lambda = config['pagerank_lambda']
         self.result_dir_name = config['result_dir_name']
         self.log_dir = config['log_dir']
+        self.tb_path = config['tensorboard_path']
         self.model_save_name = config['model_save_name']
         self.generated_text_name = config['generated_text_name']
         self.beam_search_width = config['beam_search_width']
@@ -59,7 +61,8 @@ def run(model, data_train, config, word2id, entity2id, is_inference=False):
     return model(batched_data)
 
 
-def train(config, model, data_train, data_test, word2id, entity2id, model_optimizer):
+def train(config, model, data_train, data_test, word2id, entity2id, model_optimizer, writer):
+    count = 0
     for epoch in range(config.num_epoch):
         print("epoch: ", epoch)
         with open(config.log_dir, 'a') as f:
@@ -70,7 +73,6 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
         word_cut = use_cuda(torch.Tensor([0]))
         local_cut = use_cuda(torch.Tensor([0]))
 
-        count = 0
         for iteration in range(len(data_train) // config.batch_size):
             count += 1
             data = data_train[(iteration * config.batch_size):(iteration * config.batch_size + config.batch_size)]
@@ -87,22 +89,23 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
             loss.backward()
             torch.nn.utils.clip_grad_norm(model.parameters(), config.max_gradient_norm)
             model_optimizer.step()
+            writer.add_scalar('train_loss/decoding_loss', decoder_loss.data, count)
+            writer.add_scalar('train_loss/retrieval_loss', retrieval_loss.data, count)
             if count % 50 == 0:
-                print ("iteration:", count, "decode loss:", decoder_loss.data, "retr loss:", retrieval_loss.data)
+                print ("iteration:", iteration, "decode loss:", decoder_loss.data, "retr loss:", retrieval_loss.data)
                 with open(config.log_dir, 'a') as f:
                     f.write("iteration: %d decode loss: %.4f retr loss: %.4f total loss: %.4f\n" %
                             (iteration, decoder_loss.data, retrieval_loss.data, loss.data))
 
-        print ("perplexity for epoch", epoch + 1, ":", np.exp(sentence_ppx_loss.cpu() / len(data_train)), " ppx_word: ", \
-            np.exp(sentence_ppx_word_loss.cpu() / (len(data_train) - int(word_cut))), " ppx_entity: ", \
-            np.exp(sentence_ppx_local_loss.cpu() / (len(data_train) - int(local_cut))))
+        ppl = np.exp(sentence_ppx_loss.cpu() / len(data_train))
+        word_ppl = np.exp(sentence_ppx_word_loss.cpu() / (len(data_train) - int(word_cut)))
+        entity_ppl = np.exp(sentence_ppx_local_loss.cpu() / (len(data_train) - int(local_cut)))
+        print ("perplexity for epoch", epoch + 1, ":", ppl, " ppx_word: ", word_ppl, " ppx_entity: ", entity_ppl)
         with open(config.log_dir, 'a') as f:
-            f.write("perplexity for epoch%d: %.2f word ppl: %.2f entity ppl: %.2f\n" % (epoch + 1,
-                np.exp(sentence_ppx_loss.cpu() / len(data_train)), np.exp(sentence_ppx_word_loss.cpu() / (len(data_train) - int(word_cut))),
-                np.exp(sentence_ppx_local_loss.cpu() / (len(data_train) - int(local_cut)))))
+            f.write("perplexity for epoch%d: %.2f word ppl: %.2f entity ppl: %.2f\n" % (epoch + 1, ppl, word_ppl, entity_ppl))
 
         torch.save(model.state_dict(), config.model_save_name + '_epoch_' + str(epoch + 1) + '.pkl')
-        ppx, ppx_word, ppx_entity, recall = evaluate(model, data_test, config, word2id, entity2id, epoch + 1)
+        ppx, ppx_word, ppx_entity, recall = evaluate(model, data_test, config, word2id, entity2id, epoch + 1, writer)
         ppx_f = open(config.result_dir_name,'a')
         ppx_f.write("test entity recall for epoch %d: %.4f\n" % (epoch + 1, recall))
         ppx_f.write("epoch " + str(epoch + 1) + " ppx: " + str(ppx) + " ppx_word: " + str(ppx_word) + " ppx_entity: " + \
@@ -110,7 +113,7 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
         ppx_f.close()
 
 
-def evaluate(model, data_test, config, word2id, entity2id, epoch, is_test=False, model_path=None):
+def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_test=False, model_path=None):
     if model_path:
         model.load_state_dict(torch.load(model_path))
     sentence_ppx_loss = 0
@@ -130,7 +133,6 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, is_test=False,
         batch_size = len(word_index)
         decoder_len = len(word_index[0])
         text = []
-        # if selector != None:
         if True:
             for i in range(batch_size):
                 tmp_dict = dict()
@@ -140,15 +142,6 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, is_test=False,
                         break
                     tmp.append(id2word[word_index[i][j]])
                 tmp_dict['res_text'] = tmp
-                # local_tmp = []
-                # only_two_tmp = []
-                # for j in range(len(tmp)):
-                #     if selector[i][j] == 1:
-                #         local_tmp.append(tmp[j])
-                #     if selector[i][j] == 2:
-                #         only_two_tmp.append(tmp[j])
-                # tmp_dict['local'] = local_tmp
-                # tmp_dict['only_two'] = only_two_tmp
                 text.append(tmp_dict)
 
         for line in text:
@@ -179,17 +172,18 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, is_test=False,
             np.exp(sentence_ppx_word_loss.cpu() / (len(data_test) - int(word_cut))),
             np.exp(sentence_ppx_local_loss.cpu() / (len(data_test) - int(local_cut))))
         exit()
-    print('perplexity on test set:', np.exp(sentence_ppx_loss.cpu() / len(data_test)),
-          "word ppl: ", np.exp(sentence_ppx_word_loss.cpu() / (len(data_test) - int(word_cut))),
-          'entity ppl: ', np.exp(sentence_ppx_local_loss.cpu() / (len(data_test) - int(local_cut))))
-    with open(config.log_dir, 'a') as f:
-        f.write("perplexity on testset: %.2f word ppl: %.2f entity ppl: %.2f\n" % (np.exp(sentence_ppx_loss.cpu() / len(data_test)),
-                np.exp(sentence_ppx_word_loss.cpu() / (len(data_test) - int(word_cut))),
-                np.exp(sentence_ppx_local_loss.cpu() / (len(data_test) - int(local_cut)))))
-        f.write("response entity recall: %.2f\n" % entity_recall)
+    ppl = np.exp(sentence_ppx_loss.cpu() / len(data_test))
+    word_ppl = np.exp(sentence_ppx_word_loss.cpu() / (len(data_test) - int(word_cut)))
+    entity_ppl = np.exp(sentence_ppx_local_loss.cpu() / (len(data_test) - int(local_cut)))
+    print('perplexity on test set:', ppl, "word ppl: ", word_ppl, 'entity ppl: ', entity_ppl)
     print("response entity recall: ", entity_recall)
-
-
+    writer.add_scalar('test_ppl/ppl', ppl, epoch)
+    writer.add_scalar('test_ppl/word_ppl', word_ppl, epoch)
+    writer.add_scalar('test_ppl/entity_ppl', entity_ppl, epoch)
+    writer.add_scalar('recall', entity_recall, epoch)
+    with open(config.log_dir, 'a') as f:
+        f.write("perplexity on testset: %.2f word ppl: %.2f entity ppl: %.2f\n" % (ppl, word_ppl, entity_ppl))
+        f.write("response entity recall: %.2f\n" % entity_recall)
 
     return np.exp(sentence_ppx_loss.cpu() / len(data_test)), np.exp(sentence_ppx_word_loss.cpu() / (len(data_test) - int(word_cut))), \
         np.exp(sentence_ppx_local_loss.cpu() / (len(data_test) - int(local_cut))), entity_recall
@@ -220,17 +214,17 @@ def main():
     word2id, entity2id, vocab, embed, entity_vocab, entity_embed, relation_vocab, relation_embed, entity_relation_embed, adj_table \
         = build_vocab(config.data_dir, raw_vocab, config=config)
     model = use_cuda(ConceptFlow(config, embed, entity_relation_embed, adj_table))
-
     model_optimizer = torch.optim.Adam(model.parameters(), lr=config.lr_rate)
+    writer = SummaryWriter(config.tb_path)
     
     ppx_f = open(config.result_dir_name,'a')
     for name, value in vars(config).items():
         ppx_f.write('%s = %s' % (name, value) + '\n')
 
     if config.is_train == False:
-        evaluate(model, data_test, config, word2id, entity2id, 0, model_path=config.test_model_path)
+        evaluate(model, data_test, config, word2id, entity2id, 0, writer, model_path=config.test_model_path)
         exit() 
     
-    train(config, model, data_train, data_test, word2id, entity2id, model_optimizer)
+    train(config, model, data_train, data_test, word2id, entity2id, model_optimizer, writer)
 
 main()
