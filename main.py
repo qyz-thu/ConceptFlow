@@ -88,9 +88,10 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
             torch.nn.utils.clip_grad_norm(model.parameters(), config.max_gradient_norm)
             model_optimizer.step()
             if count % 50 == 0:
-                print ("iteration:", iteration, "decode loss:", decoder_loss.data, "retr loss:", retrieval_loss.data)
+                print ("iteration:", count, "decode loss:", decoder_loss.data, "retr loss:", retrieval_loss.data)
                 with open(config.log_dir, 'a') as f:
-                    f.write("iteration: %d Loss: %.4f\n" % (iteration, loss.data))
+                    f.write("iteration: %d decode loss: %.4f retr loss: %.4f total loss: %.4f\n" %
+                            (iteration, decoder_loss.data, retrieval_loss.data, loss.data))
 
         print ("perplexity for epoch", epoch + 1, ":", np.exp(sentence_ppx_loss.cpu() / len(data_train)), " ppx_word: ", \
             np.exp(sentence_ppx_word_loss.cpu() / (len(data_train) - int(word_cut))), " ppx_entity: ", \
@@ -100,7 +101,7 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
                 np.exp(sentence_ppx_loss.cpu() / len(data_train)), np.exp(sentence_ppx_word_loss.cpu() / (len(data_train) - int(word_cut))),
                 np.exp(sentence_ppx_local_loss.cpu() / (len(data_train) - int(local_cut)))))
 
-        # torch.save(model.state_dict(), config.model_save_name + '_epoch_' + str(epoch + 1) + '.pkl')
+        torch.save(model.state_dict(), config.model_save_name + '_epoch_' + str(epoch + 1) + '.pkl')
         ppx, ppx_word, ppx_entity, recall = evaluate(model, data_test, config, word2id, entity2id, epoch + 1)
         ppx_f = open(config.result_dir_name,'a')
         ppx_f.write("test entity recall for epoch %d: %.4f\n" % (epoch + 1, recall))
@@ -169,7 +170,7 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, is_test=False,
         write_batch_res_text(word_index, id2word)
 
         if count % 50 == 0:
-            print ("iteration for evaluate:", iteration, "loss:", decoder_loss.data)
+            print ("iteration for evaluate:", count, "loss:", decoder_loss.data)
     entity_recall /= count
 
     model.is_inference = False

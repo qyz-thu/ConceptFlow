@@ -67,16 +67,16 @@ def process_train():
         adj_table[id2].add(id1)
 
     start_time = time.time()
-    f_w = open(data_dir + '_testset4bs.txt', 'w')
+    f_w = open(data_dir + 'trainset4bs_full.txt', 'w')
     # log = open(data_dir + 'checklist.txt', 'w')
     three_hop = 0
     four_hop = 0
     five_hop = 0
-    with open(data_dir + 'testset.txt') as f:
+    with open(data_dir + 'trainset.txt') as f:
         for i, line in enumerate(f):
             if i % 1000 == 0:
                 print('processed %d samples, time used: %.2f' % (i, time.time() - start_time))
-            if i > 999: break
+            # if i > 999: break
             data = json.loads(line)
             post_ent = list()
             response_ent = [-1 for j in range(len(data['response']))]
@@ -90,23 +90,42 @@ def process_train():
 
             # subgraph consists of zero-hop entities and entities from all shortest path for every golden entities
             edge_in_path = dict()
-            subgraph = list()
+            paths = list()
             memo = {'id': 0, 'long_path': []}
             for p in path:
                 for pp in p:
-                    if len(pp) > 3:
-                        continue
-                        memo['long_path'].append(pp)
-                        if len(pp) == 4:
-                            three_hop += 1
-                        elif len(pp) == 5:
-                            four_hop += 1
-                        else:
-                            five_hop += 1
-                    subgraph.append(pp)
-            if len(memo['long_path']) > 0:
-                memo['id'] = i
-                log.write(json.dumps(memo) + '\n')
+                    # if len(pp) > 3:
+                    #     continue
+                    #     memo['long_path'].append(pp)
+                    #     if len(pp) == 4:
+                    #         three_hop += 1
+                    #     elif len(pp) == 5:
+                    #         four_hop += 1
+                    #     else:
+                    #         five_hop += 1
+                    paths.append(pp)
+            subgraph = set()
+            edge_list = dict()
+            for path in paths:
+                prior = None
+                for e in path:
+                    if prior:
+                        head = max(prior, e)
+                        tail = prior + e - head
+                        if head not in edge_list:
+                            edge_list[head] = set()
+                        edge_list[head].add(tail)
+                    prior = e
+                    subgraph.add(e)
+            subgraph = list(subgraph)
+            edges = [[], []]
+            for e in edge_list:
+                for v in edge_list[e]:
+                    edges[0] += [e, v]
+                    edges[1] += [v, e]
+            # if len(memo['long_path']) > 0:
+            #     memo['id'] = i
+            #     log.write(json.dumps(memo) + '\n')
 
             # subgraph = [set(post_ent), set(), set(), set(), set(), set()]  # 0-5 hop entities
             # for p in path:
@@ -141,8 +160,7 @@ def process_train():
             #     for tail in edge_in_path[node]:
             #         path_edges.append([node, tail])
             n_data = {'post': data['post'], 'response': data['response'], 'post_ent': post_ent, 'response_ent': response_ent,
-                      'paths': subgraph,
-                      # 'graph_edges': edges, 'path_edges': path_edges
+                      'paths': paths, 'subgraph': subgraph, 'edges': edges
                       }
             f_w.write(json.dumps(n_data) + '\n')
     print(three_hop, four_hop, five_hop)
@@ -170,16 +188,16 @@ def process_test():
 def main():
     global entity_list, entity2id
     entity_list = ['_NONE', '_PAD_H', '_PAD_R', '_PAD_T', '_NAF_H', '_NAF_R', '_NAF_T']
-    entity2id = dict()
-    with open(data_dir + 'entity.txt') as f:
-        for i, line in enumerate(f):
-            e = line.strip()
-            entity2id[e] = len(entity_list)
-            entity_list.append(e)
-    process_train()
-    with open(data_dir + '_testset4bs.txt') as f:
+    # entity2id = dict()
+    # with open(data_dir + 'entity.txt') as f:
+    #     for i, line in enumerate(f):
+    #         e = line.strip()
+    #         entity2id[e] = len(entity_list)
+    #         entity_list.append(e)
+    # process_train()
+    with open(data_dir + 'testset4bs.txt') as f:
         datas = f.readlines()
-    with open(data_dir + '_testset4bs.txt', 'w') as f:
+    with open(data_dir + '__testset4bs.txt', 'w') as f:
         for data in datas:
             data = json.loads(data)
             edge_list = dict()
