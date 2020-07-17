@@ -156,7 +156,6 @@ class ConceptFlow(nn.Module):
                         retrieval_loss += -torch.log(1e-12 + prob[index])
                         total_path_len += 1
             retrieval_loss /= total_path_len
-
         else:
             subgraph = []
             edges = []
@@ -275,7 +274,6 @@ class ConceptFlow(nn.Module):
         graph_list = self.construct_graph(subgraph, edges)
         batched_graph = dgl.batch(graph_list)
         graph_embed = self.gnn(batched_graph, batched_graph.ndata['h'])
-
         # text decoder input
         decoder_input = self.word_embedding(responses_id)
 
@@ -341,7 +339,7 @@ class ConceptFlow(nn.Module):
                 if match_entity[b][d] != -1:
                     graph_entities[b][d][match_entity[b][d]] = 1
 
-        # get recall
+        # get recall & precision
         if self.is_inference:
             response_ent_num = 0
             found_num = 0
@@ -356,6 +354,9 @@ class ConceptFlow(nn.Module):
                     response_ent_num += 1
                     if response_ent[b][d] in entities:
                         found_num += 1
+            total_graph_size = sum(subgraph_len)
+            recall = found_num / response_ent_num
+            precision = found_num / total_graph_size
 
         use_entities_local = torch.sum(graph_entities, [2])
 
@@ -364,7 +365,7 @@ class ConceptFlow(nn.Module):
 
         if self.is_inference:
             return decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_entity, word_neg_num, local_neg_num, \
-                   found_num / response_ent_num, word_index.detach().cpu().numpy().tolist()
+                   recall, precision, total_graph_size, word_index.detach().cpu().numpy().tolist()
         return decoder_loss, retrieval_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_entity, word_neg_num, local_neg_num
 
     def inference(self, decoder_output_t, ce_alignments_t, word2id, local_entity, id2entity):

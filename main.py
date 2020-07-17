@@ -10,6 +10,7 @@ import yaml
 import os
 import pynvml
 import sys
+import time
 warnings.filterwarnings('ignore')
 
 csk_triples, csk_entities, kb_dict = [], [], []
@@ -63,6 +64,7 @@ def run(model, data_train, config, word2id, entity2id, is_inference=False):
 
 def train(config, model, data_train, data_test, word2id, entity2id, model_optimizer, writer):
     count = 0
+    start_time = time.time()
     for epoch in range(config.num_epoch):
         print("epoch: ", epoch)
         with open(config.log_dir, 'a') as f:
@@ -93,6 +95,7 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
             writer.add_scalar('train_loss/retrieval_loss', retrieval_loss.data, count)
             if count % 50 == 0:
                 print ("iteration:", iteration, "decode loss:", decoder_loss.data, "retr loss:", retrieval_loss.data)
+                print("time used: %ds" % (time.time() - start_time))
                 with open(config.log_dir, 'a') as f:
                     f.write("iteration: %d decode loss: %.4f retr loss: %.4f total loss: %.4f\n" %
                             (iteration, decoder_loss.data, retrieval_loss.data, loss.data))
@@ -119,6 +122,8 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_tes
     sentence_ppx_loss = 0
     sentence_ppx_word_loss = 0
     entity_recall = 0
+    entity_precision = 0
+    total_graph_size = 0
     sentence_ppx_local_loss = 0
     word_cut = use_cuda(torch.Tensor([0]))
     local_cut = use_cuda(torch.Tensor([0]))
@@ -148,13 +153,16 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_tes
             w.write(json.dumps(line) + '\n')
         w.close()
 
-    for iteration in range(len(data_test) // config.batch_size):
+    iter_time = len(data_test) // config.batch_size
+    for iteration in range(iter_time):
         count += 1
         data = data_test[(iteration * config.batch_size):(iteration * config.batch_size + config.batch_size)]
-        decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, word_neg_num, entity_neg_num, recall, word_index = \
+        decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, word_neg_num, entity_neg_num, recall, precision, graph_size, word_index = \
             run(model, data, config, word2id, entity2id, model.is_inference)
         sentence_ppx_loss += torch.sum(sentence_ppx).data
         entity_recall += recall
+        entity_precision += precision
+        total_graph_size += graph_size / config.batch_size
         sentence_ppx_word_loss += torch.sum(sentence_ppx_word).data
         sentence_ppx_local_loss += torch.sum(sentence_ppx_local).data
         word_cut += word_neg_num
@@ -163,8 +171,11 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_tes
         write_batch_res_text(word_index, id2word)
 
         if count % 50 == 0:
-            print ("iteration for evaluate:", count, "loss:", decoder_loss.data)
+            print("iteration for evaluate:", count, "loss:", decoder_loss.data)
+            writer.add_scalar('test_loss/', decoder_loss.data, count + epoch * iter_time)
     entity_recall /= count
+    entity_precision /= count
+    total_graph_size /= count
 
     model.is_inference = False
     if model_path != None:
@@ -176,14 +187,16 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_tes
     word_ppl = np.exp(sentence_ppx_word_loss.cpu() / (len(data_test) - int(word_cut)))
     entity_ppl = np.exp(sentence_ppx_local_loss.cpu() / (len(data_test) - int(local_cut)))
     print('perplexity on test set:', ppl, "word ppl: ", word_ppl, 'entity ppl: ', entity_ppl)
-    print("response entity recall: ", entity_recall)
+    print("response entity recall: ", entity_recall, ' precision: ', entity_precision, "graph size:", total_graph_size)
     writer.add_scalar('test_ppl/ppl', ppl, epoch)
     writer.add_scalar('test_ppl/word_ppl', word_ppl, epoch)
     writer.add_scalar('test_ppl/entity_ppl', entity_ppl, epoch)
     writer.add_scalar('recall', entity_recall, epoch)
+    writer.add_scalar('precision', entity_precision, epoch)
+    writer.add_scalar('graph_size', total_graph_size, epoch)
     with open(config.log_dir, 'a') as f:
         f.write("perplexity on testset: %.2f word ppl: %.2f entity ppl: %.2f\n" % (ppl, word_ppl, entity_ppl))
-        f.write("response entity recall: %.2f\n" % entity_recall)
+        f.write("response entity recall: %.2f; precision: %.2f\n" % (entity_recall, entity_precision))
 
     return np.exp(sentence_ppx_loss.cpu() / len(data_test)), np.exp(sentence_ppx_word_loss.cpu() / (len(data_test) - int(word_cut))), \
         np.exp(sentence_ppx_local_loss.cpu() / (len(data_test) - int(local_cut))), entity_recall
@@ -206,6 +219,7 @@ def main():
     if max_space < 1e9:
         print("no gpu with sufficient memory currently.")
         sys.exit(0)
+    print("Running on device %d" % device_index)
     os.environ['CUDA_VISIBLE_DEVICES'] = str(device_index)
 
     config = Config('config.yml')
