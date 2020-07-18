@@ -152,7 +152,6 @@ class ConceptFlow(nn.Module):
                                 break
                         candidate_embed = self.entity_embedding(use_cuda(torch.LongTensor(candidates)))
                         prob = self.softmax_d0(torch.sum(self.graph_prob_linear(candidate_embed) * graph_output.squeeze(0), 1))
-                        # prob = nn.functional.sigmoid(torch.sum(self.graph_prob_linear(candidate_embed) * graph_output.squeeze(0), 1))
                         retrieval_loss += -torch.log(1e-12 + prob[index])
                         total_path_len += 1
             retrieval_loss /= total_path_len
@@ -176,7 +175,6 @@ class ConceptFlow(nn.Module):
                             candidates = list(self.adj_table[ent]) + [0]
                             candidate_embed = self.entity_embedding(use_cuda(torch.LongTensor(candidates)))
                             prob = self.softmax_d0(torch.sum(self.graph_prob_linear(candidate_embed) * graph_output.squeeze(0), 1))
-                            # prob = nn.functional.sigmoid(torch.sum(self.graph_prob_linear(candidate_embed) * graph_output.squeeze(0), 1))
                             prob = prob.detach().cpu().numpy().tolist()
                             sorted_prob = [[i, prob[i]] for i in range(len(prob))]
                             sorted_prob.sort(key=lambda x: x[1], reverse=True)
@@ -191,7 +189,6 @@ class ConceptFlow(nn.Module):
                             batched_state1, batched_state2 = graph_decoder_state[0].clone(), graph_decoder_state[1].clone()
                             batched_graph_input = graph_input.clone()
                             for i in range(self.bs_width - 1):
-                                # batched_graph_decoder_state = torch.cat([batched_graph_decoder_state, graph_decoder_state], dim=1)
                                 batched_state1 = torch.cat([batched_state1, graph_decoder_state[0]], dim=1)
                                 batched_state2 = torch.cat([batched_state2, graph_decoder_state[1]], dim=1)
                                 batched_graph_input = torch.cat([batched_graph_input, graph_input], dim=0)
@@ -310,15 +307,11 @@ class ConceptFlow(nn.Module):
             context = use_cuda(torch.zeros([batch_size, self.units]))
             decoder_state = text_encoder_state
             selector = use_cuda(torch.empty(0).type('torch.LongTensor'))
-            # current_graph = post_ent
-            # outer = [[[n] for n in g] for g in post_ent]
 
             for t in range(decoder_len):
                 decoder_input_t = torch.cat((decoder_input_t, context), 1).unsqueeze(1)
                 decoder_output_t, decoder_state = self.decoder(decoder_input_t, decoder_state)
 
-                # if t < self.max_hop:
-                #     ce_attention_keys, ce_attention_values, graph_mask = self.beam_search(decoder_output_t.squeeze(1), current_graph, outer)
                 context, ce_alignments_t = self.attention(c_attention_keys, c_attention_values, ce_attention_keys, ce_attention_values,
                                                               decoder_output_t.squeeze(1), graph_mask)
                 decoder_output_t = context.unsqueeze(1)

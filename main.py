@@ -103,6 +103,9 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
         ppl = np.exp(sentence_ppx_loss.cpu() / len(data_train))
         word_ppl = np.exp(sentence_ppx_word_loss.cpu() / (len(data_train) - int(word_cut)))
         entity_ppl = np.exp(sentence_ppx_local_loss.cpu() / (len(data_train) - int(local_cut)))
+        writer.add_scalar('train_ppl/ppl', ppl, epoch + 1)
+        writer.add_scalar('train_ppl/word_ppl', word_ppl, epoch + 1)
+        writer.add_scalar('train_ppl/entitty_ppl', entity_ppl, epoch + 1)
         print ("perplexity for epoch", epoch + 1, ":", ppl, " ppx_word: ", word_ppl, " ppx_entity: ", entity_ppl)
         with open(config.log_dir, 'a') as f:
             f.write("perplexity for epoch%d: %.2f word ppl: %.2f entity ppl: %.2f\n" % (epoch + 1, ppl, word_ppl, entity_ppl))
@@ -172,7 +175,7 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_tes
 
         if count % 50 == 0:
             print("iteration for evaluate:", count, "loss:", decoder_loss.data)
-            writer.add_scalar('test_loss/', decoder_loss.data, count + epoch * iter_time)
+            writer.add_scalar('test_loss/', decoder_loss.data, count)
     entity_recall /= count
     entity_precision /= count
     total_graph_size /= count

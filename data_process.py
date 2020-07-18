@@ -168,33 +168,10 @@ def process_train():
     # log.close()
 
 
-def process_test():
-    f_w = open(data_dir + 'testset4bs.txt', 'w')
-    with open(data_dir + 'testset.txt') as f:
-        for line in f:
-            data = json.loads(line)
-            post_ent = list()
-            response_ent = [-1 for i in range(len(data['response']))]
-            for i in range(len(data['post_triples'])):
-                if data['post_triples'][i] > 0 and data['post'][i] in entity2id:
-                    post_ent.append(entity2id[data['post'][i]])
-            for i, w in enumerate(data['response']):
-                if w in entity2id:
-                    response_ent[i] = entity2id[w]
-            n_data = {'post': data['post'], 'response': data['response'], 'post_ent': post_ent, 'response_ent': response_ent}
-            f_w.write(json.dumps(n_data) + '\n')
-
-
-def main():
-    global entity_list, entity2id
-    entity_list = ['_NONE', '_PAD_H', '_PAD_R', '_PAD_T', '_NAF_H', '_NAF_R', '_NAF_T']
-    # entity2id = dict()
-    # with open(data_dir + 'entity.txt') as f:
-    #     for i, line in enumerate(f):
-    #         e = line.strip()
-    #         entity2id[e] = len(entity_list)
-    #         entity_list.append(e)
-    # process_train()
+def process1():
+    """
+    Add 'subgraph' & 'edges' field according to 'paths'
+    """
     with open(data_dir + 'testset4bs.txt') as f:
         datas = f.readlines()
     with open(data_dir + '__testset4bs.txt', 'w') as f:
@@ -223,6 +200,82 @@ def main():
             data['subgraph'] = subgraph
             data['edges'] = edges
             f.write(json.dumps(data) + '\n')
+
+
+def process2(entity2id):
+    """
+    count the recall and precision of conceptflow graph
+    """
+    f = open(data_dir + 'resource.txt')
+    d = json.loads(f.readline())
+    f.close()
+    csk_entities = d['csk_entities']
+    response_ent = []
+    recall = 0
+    precision = 0
+    total_graph_size = 0
+    with open(data_dir + 'trainset4bs.txt') as f:
+        for i, line in enumerate(f):
+            if i > 99999:
+                break
+            data = json.loads(line)
+            res_ent = set()
+            for j in data['response_ent']:
+                if j > 0:
+                    res_ent.add(j)
+            response_ent.append(res_ent)
+    count = 0
+    with open(data_dir + 'trainset.txt') as f:
+        for i, line in enumerate(f):
+            if i > 99999:
+                break
+            data = json.loads(line)
+            graph = set()
+            graph_size = 0
+            # add zero hop
+            post = data['post']
+            for j, index in enumerate(data['post_triples']):
+                if index > 0:
+                    ent = post[j]
+                    graph_size += 1
+                    if ent not in entity2id:
+                        continue
+                    graph.add(entity2id[ent])
+            # add one hop
+            for oh in data['all_entities_one_hop']:
+                if csk_entities[oh] in entity2id:
+                    graph.add(entity2id[csk_entities[oh]])
+            # add two hop
+            for th in data['only_two']:
+                if csk_entities[th] in entity2id:
+                    graph.add(entity2id[csk_entities[th]])
+            graph_size += len(data['all_entities_one_hop'])
+            graph_size += len(data['only_two'])
+            total_graph_size += graph_size
+            res_ent = response_ent[i]
+            if len(res_ent) == 0:
+                continue
+            hit = len(graph & res_ent)
+            precision += hit / graph_size
+            recall += hit / len(res_ent)
+            count += 1
+    precision /= count
+    recall /= count
+    total_graph_size /= i
+    print("precision: %.4f recall: %.4f graph size: %.4f" % (precision, recall, total_graph_size))
+
+
+def main():
+    global entity_list, entity2id
+    entity_list = ['_NONE', '_PAD_H', '_PAD_R', '_PAD_T', '_NAF_H', '_NAF_R', '_NAF_T']
+    entity2id = dict()
+    with open(data_dir + 'entity.txt') as f:
+        for i, line in enumerate(f):
+            e = line.strip()
+            entity2id[e] = len(entity_list)
+            entity_list.append(e)
+    process2(entity2id)
+    # process_train()
 
 
 main()
