@@ -3,7 +3,7 @@ import time
 
 adj_table = dict()
 data_dir = "../ConceptFlow/data/data/"
-beamsearch_size = 100
+# candidate_size = 50
 
 
 def get_path(post_ent, res_ent):
@@ -46,34 +46,22 @@ def get_path(post_ent, res_ent):
     return path
 
 
-def process_train():
-    with open(data_dir + 'resource.txt') as f:
-        d = json.loads(f.readline())
-    csk_triples = d['csk_triples']
-    id2entity = d['csk_entities']
-
-    # get adjacent table
-    for i in range(len(entity_list)):
-        adj_table[i] = set()
-    for triple in csk_triples:
-        t = triple.split(',')
-        sbj = t[0]
-        obj = t[2][1:]
-        if sbj not in entity_list or obj not in entity_list:
-            continue
-        id1 = entity2id[sbj]
-        id2 = entity2id[obj]
-        adj_table[id1].add(id2)
-        adj_table[id2].add(id1)
-
+def process_train(src_path, dst_path):
     start_time = time.time()
-    f_w = open(data_dir + 'trainset4bs_full.txt', 'w')
+    processed = 0
+    f = open(data_dir + dst_path)
+    for i in f:
+        processed += 1
+    f_w = open(data_dir + dst_path, 'a')
     # log = open(data_dir + 'checklist.txt', 'w')
+    print('process train to %s from line %d' % (dst_path, processed))
     three_hop = 0
     four_hop = 0
     five_hop = 0
-    with open(data_dir + 'trainset.txt') as f:
+    with open(data_dir + src_path) as f:
         for i, line in enumerate(f):
+            if i < processed:
+                continue
             if i % 1000 == 0:
                 print('processed %d samples, time used: %.2f' % (i, time.time() - start_time))
             # if i > 999: break
@@ -91,7 +79,7 @@ def process_train():
             # subgraph consists of zero-hop entities and entities from all shortest path for every golden entities
             edge_in_path = dict()
             paths = list()
-            memo = {'id': 0, 'long_path': []}
+            # memo = {'id': 0, 'long_path': []}
             for p in path:
                 for pp in p:
                     # if len(pp) > 3:
@@ -127,38 +115,6 @@ def process_train():
             #     memo['id'] = i
             #     log.write(json.dumps(memo) + '\n')
 
-            # subgraph = [set(post_ent), set(), set(), set(), set(), set()]  # 0-5 hop entities
-            # for p in path:
-            #     for pp in p:
-            #         prior = None
-            #         for i, e in enumerate(pp):
-            #             if i == 0:
-            #                 prior = e
-            #                 continue
-            #             if id2entity[e] in entity_list:
-            #                 subgraph[i].add(e)
-            #             if prior:
-            #                 head = max(prior, e)
-            #                 tail = prior + e - head
-            #                 if head in edge_in_path:
-            #                     edge_in_path[head].add(tail)
-            #                 else:
-            #                     edge_in_path[head] = {tail}
-            #             prior = e
-            # subgraph = [list(g)[:beamsearch_size] for g in subgraph]
-            # edges = list()
-            # all_nodes = list()
-            # for hop in subgraph:
-            #     for ent in hop:
-            #         all_nodes.append(ent)
-            # for i in range(len(all_nodes)):
-            #     for j in range(i + 1, len(all_nodes)):
-            #         if all_nodes[j] in adj_table[all_nodes[i]]:
-            #             edges.append([all_nodes[i], all_nodes[j]])
-            # path_edges = []
-            # for node in edge_in_path:
-            #     for tail in edge_in_path[node]:
-            #         path_edges.append([node, tail])
             n_data = {'post': data['post'], 'response': data['response'], 'post_ent': post_ent, 'response_ent': response_ent,
                       'paths': paths, 'subgraph': subgraph, 'edges': edges
                       }
@@ -265,6 +221,71 @@ def process2(entity2id):
     print("precision: %.4f recall: %.4f graph size: %.4f" % (precision, recall, total_graph_size))
 
 
+def process3():     # not applicable
+    """
+    build the input for training graph decoder v3 from 'paths'
+    the new 'graph_input' should have the size of (max_path_num, max_path_len, candidate_size)
+    the 'output_mask' should have the same size as 'graph_input', in which 1 indicates valid input
+    """
+    with open(data_dir + '_trainset4bs.txt') as f:
+        datas = f.readlines()
+    with open(data_dir + '__trainset4bs.txt', 'w') as f:
+        for data in datas:
+            data = json.loads(data)
+            paths = data['paths']
+            post_ent = data['post_ent']
+            graph_input = []
+            output_mask = []
+            max_path_len = max(len(p) for p in paths) + 1   # 1 <- EOP
+            candidate_size = len(post_ent)
+            for path in paths:
+                for node in path:
+                    if len(adj_table[node]) > candidate_size:
+                        candidate_size = len(adj_table[node])
+            for path in paths:
+                path_candidate = []
+                path_output_mask = []
+                for i in range(max_path_len):
+                    if i == 0:
+                        candidate = [e for e in post_ent if e != path[0]]
+                        path_candidate.append([path[0]] + candidate + [1] * (candidate_size - len(candidate) - 1))  # 1 is the padding token
+                        path_output_mask.append([1] * (len(candidate) + 1) + [0] * (candidate_size - len(candidate) - 1))
+                    elif i <= len(path):
+                        ground_truth_ent = path[i] if i < len(path) else 0  # 0 is the EOP token
+                        candidate = [e for e in adj_table[path[i-1]] if e != ground_truth_ent]
+                        path_candidate.append([ground_truth_ent] + candidate + [1] * (candidate_size - len(candidate)))
+                        path_output_mask.append([1] * (len(candidate) + 1) + [0] * (candidate_size - len(candidate) - 1))
+                    else:
+                        path_candidate.append([1] * candidate_size)
+                        path_output_mask.append([0] * candidate_size)
+                graph_input.append(path_candidate)
+                output_mask.append(path_output_mask)
+            data.pop('paths')
+            data['graph_input'] = graph_input
+            data['output_mask'] = output_mask
+            f.write(json.dumps(data) + '\n')
+
+
+def process4():
+    """
+    pre-compute the 'max_path_len' and 'max_candidate_size' for every sample
+    """
+    f_w = open(data_dir + '__trainset4bs.txt', 'w')
+    with open(data_dir + '_trainset4bs.txt') as f:
+        for line in f:
+            data = json.loads(line)
+            paths = data['paths']
+            max_path_len = max(len(p) for p in paths) + 1   # 1 <- EOP
+            max_candidate_size = len(data['post_ent'])
+            for path in paths:
+                for node in path:
+                    if len(adj_table[node]) > max_candidate_size:
+                        max_candidate_size = len(adj_table[node])
+            data['max_path_len'] = max_path_len
+            data['max_candidate_size'] = max_candidate_size
+            f_w.write(json.dumps(data) + '\n')
+
+
 def main():
     global entity_list, entity2id
     entity_list = ['_NONE', '_PAD_H', '_PAD_R', '_PAD_T', '_NAF_H', '_NAF_R', '_NAF_T']
@@ -274,8 +295,28 @@ def main():
             e = line.strip()
             entity2id[e] = len(entity_list)
             entity_list.append(e)
-    process2(entity2id)
-    # process_train()
+    with open(data_dir + 'resource.txt') as f:
+        d = json.loads(f.readline())
+    csk_triples = d['csk_triples']
+
+    # get adjacent table
+    print("get adjacency table")
+    for i in range(len(entity_list)):
+        adj_table[i] = set()
+    for triple in csk_triples:
+        t = triple.split(',')
+        sbj = t[0]
+        obj = t[2][1:]
+        if sbj not in entity_list or obj not in entity_list:
+            continue
+        id1 = entity2id[sbj]
+        id2 = entity2id[obj]
+        adj_table[id1].add(id2)
+        adj_table[id2].add(id1)
+    print("done!")
+
+    process4()
+    # process_train('trainset.txt', 'trainset4bs_full.txt')
 
 
 main()
