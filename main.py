@@ -42,7 +42,6 @@ class Config():
         self.gnn_layers = config['gnn_layers']
         self.fact_dropout = config['fact_dropout']
         self.fact_scale = config['fact_scale']
-        self.pagerank_lambda = config['pagerank_lambda']
         self.result_dir_name = config['result_dir_name']
         self.log_dir = config['log_dir']
         self.tb_path = config['tensorboard_path']
@@ -50,6 +49,8 @@ class Config():
         self.generated_text_name = config['generated_text_name']
         self.beam_search_width = config['beam_search_width']
         self.max_hop = config['max_hop']
+        self.max_candidate_size = config['max_candidate_size']
+        self.to_generate = config['to_generate']
 
     def list_all_member(self):
         for name, value in vars(self).items():
@@ -110,7 +111,7 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
         with open(config.log_dir, 'a') as f:
             f.write("perplexity for epoch%d: %.2f word ppl: %.2f entity ppl: %.2f\n" % (epoch + 1, ppl, word_ppl, entity_ppl))
 
-        torch.save(model.state_dict(), config.model_save_name + '_epoch_' + str(epoch + 1) + '.pkl')
+        # torch.save(model.state_dict(), config.model_save_name + '_epoch_' + str(epoch + 1) + '.pkl')
         ppx, ppx_word, ppx_entity, recall = evaluate(model, data_test, config, word2id, entity2id, epoch + 1, writer)
         ppx_f = open(config.result_dir_name,'a')
         ppx_f.write("test entity recall for epoch %d: %.4f\n" % (epoch + 1, recall))
@@ -171,7 +172,8 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_tes
         word_cut += word_neg_num
         local_cut += entity_neg_num
 
-        write_batch_res_text(word_index, id2word)
+        if config.to_generate:
+            write_batch_res_text(word_index, id2word)
 
         if count % 50 == 0:
             print("iteration for evaluate:", count, "loss:", decoder_loss.data)

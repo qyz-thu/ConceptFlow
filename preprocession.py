@@ -2,6 +2,7 @@
 import numpy as np
 import json
 import torch
+import random
 
         
 def prepare_data(config):
@@ -20,7 +21,7 @@ def prepare_data(config):
     data_train, data_test = [], []
 
     if config.is_train:
-        with open('%s/trainset4bs.txt' % config.data_dir) as f:
+        with open('%s/_trainset4bs.txt' % config.data_dir) as f:
             for idx, line in enumerate(f):
                 if idx == 99999: break
 
@@ -28,7 +29,7 @@ def prepare_data(config):
                     print('read train file line %d' % idx)
                 data_train.append(json.loads(line))
     
-    with open('%s/testset4bs.txt' % config.data_dir) as f:
+    with open('%s/_testset4bs.txt' % config.data_dir) as f:
         for line in f:
             data_test.append(json.loads(line))
     
@@ -36,6 +37,7 @@ def prepare_data(config):
 
 
 def build_vocab(path, raw_vocab, config, trans='transE'):
+    global adj_table
     print("Creating word vocabulary...")
     vocab_list = ['_PAD', '_GO', '_EOS', '_UNK', ] + sorted(raw_vocab, key=raw_vocab.get, reverse=True)
     if len(vocab_list) > config.symbols:
@@ -119,11 +121,13 @@ def build_vocab(path, raw_vocab, config, trans='transE'):
 
 
 def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
-    global csk_entities, csk_triples, kb_dict, dict_csk_entities, dict_csk_triples
+    global csk_entities, csk_triples, kb_dict, dict_csk_entities, dict_csk_triples, adj_table
 
     encoder_len = max([len(item['post']) for item in data]) + 1
     decoder_len = max([len(item['response']) for item in data]) + 1
-    entity_len = max([len(item['paths']) for item in data])
+    max_path_num = max([len(item['paths']) for item in data])
+    max_path_len = 0 if is_inference else max([item['max_path_len'] for item in data])
+    max_candidate_size = 0 if is_inference else min(max([item['max_candidate_size'] for item in data]), config.max_candidate_size)
     posts_id = np.full((len(data), encoder_len), 0, dtype=int)  # todo: change to np.zeros?
     responses_id = np.full((len(data), decoder_len), 0, dtype=int)
     post_ent = []
@@ -132,8 +136,12 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
     responses_length = []
     subgraph = []
     subgraph_length = []
-    paths = []
+    # paths = []
+    graph_input = []
+    output_mask = []
     edges = []
+    path_num = []
+    path_len = []
     match_entity = np.full((len(data), decoder_len), -1, dtype=int)
 
     def padding(sent, l):
@@ -165,18 +173,74 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
         post_ent_len.append(len(item['post_ent']))
         response_ent.append(item['response_ent'] + [-1 for j in range(decoder_len - len(item['response_ent']))])
 
-        # ground-truth path
-        for i in range(len(item['paths'])):
-            item['paths'][i].append(0)
-        paths.append(item['paths'])
+        # # ground-truth path
+        # for i in range(len(item['paths'])):
+        #     item['paths'][i].append(0)
+        # paths.append(item['paths'])
 
-        # if not is_inference:
+        if not is_inference:
+            paths = item['paths']
+            path_num.append(len(paths))
+            zero_hop = set(item['post_ent'])
+            graph_input_tmp = []
+            output_mask_tmp = []
+            path_len_tmp = []
+            for j in range(max_path_num):
+                if j < len(paths):
+                    path = paths[j]
+                    path_len_tmp.append(len(path) + 1)  # 1 for EOP
+                    path_candidate = []
+                    path_output_mask = []
+                    for i in range(max_path_len):
+                        if i == 0:
+                            candidate = [e for e in zero_hop if e != path[0]]
+                            if len(candidate) > max_candidate_size - 2:
+                                random.shuffle(candidate)
+                                candidate = candidate[:max_candidate_size - 2]
+                            candidate += [0]    # add the EOP token
+                            path_candidate.append([path[0]] + candidate + [1] * (max_candidate_size - len(candidate) - 1)) # 1 is the padding token
+                            path_output_mask.append([1] * (len(candidate) + 1) + [0] * (max_candidate_size - len(candidate) - 1))
+                        elif i <= len(path):
+                            ground_truth_ent = path[i] if i < len(path) else 0  # 0 is the EOP token
+                            candidate = [e for e in adj_table[path[i-1]] if e != ground_truth_ent]
+                            if len(candidate) > max_candidate_size - 2:
+                                random.shuffle(candidate)
+                                candidate = candidate[:max_candidate_size - 2]
+                            candidate += [0]
+                            path_candidate.append([ground_truth_ent] + candidate + [1] * (max_candidate_size - len(candidate) - 1))
+                            path_output_mask.append([1] * (len(candidate) + 1) + [0] * (max_candidate_size - len(candidate) - 1))
+                        else:
+                            path_candidate.append([1] * max_candidate_size)
+                            path_output_mask.append([0] * max_candidate_size)
+                    graph_input_tmp.append(path_candidate)
+                    output_mask_tmp.append(path_output_mask)
+                else:
+                    graph_input_tmp.append([[1 for k in range(max_candidate_size)] for l in range(max_path_len)])
+                    output_mask_tmp.append([[0 for k in range(max_candidate_size)] for l in range(max_path_len)])
+            path_len.append(path_len_tmp)
+            # check correctness
+            for i, path in enumerate(paths):
+                for j, node in enumerate(path):
+                    assert graph_input_tmp[i][j][0] == node
+                    if j == 0:
+                        for k in range(max_candidate_size):
+                            if k < len(zero_hop) + 1:
+                                assert output_mask_tmp[i][j][k] == 1
+                            else:
+                                assert output_mask_tmp[i][j][k] == 0
+                    else:
+                        for k in range(max_candidate_size):
+                            if k < len(adj_table[path[j-1]]) + 1:
+                                assert output_mask_tmp[i][j][k] == 1
+                            else:
+                                assert output_mask_tmp[i][j][k] == 0
+                assert graph_input_tmp[i][len(path)][0] == 0
+
+            graph_input.append(graph_input_tmp)
+            output_mask.append(output_mask_tmp)
+
         subgraph_tmp = item['subgraph']
         subgraph_len_tmp = len(subgraph_tmp)
-        # subgraph_tmp += [1] * (entity_len - len(subgraph_tmp))
-        # for i in range(len(subgraph_tmp)):
-        #     subgraph_len_tmp.append(len(subgraph_tmp[i]))
-        #     subgraph_tmp[i] += [1] * (beamsearch_width - len(subgraph_tmp[i]))
         subgraph.append(subgraph_tmp)
         subgraph_length.append(subgraph_len_tmp)
 
@@ -196,11 +260,18 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
 
         next_id += 1
 
+    # graph_input = np.array(graph_input)
+    # output_mask = np.array(output_mask)
+    # assert graph_input.shape == (config.batch_size, max_path_num, max_path_len, max_candidate_size)
+    # assert output_mask.shape == (config.batch_size, max_path_num, max_path_len, max_candidate_size)
     batched_data = {'post_text': np.array(posts_id),
                     'response_text': np.array(responses_id),
                     'subgraph': np.array(subgraph),
                     'subgraph_size': subgraph_length,
-                    'paths': paths,
+                    'graph_input': np.array(graph_input),
+                    'output_mask': np.array(output_mask),
+                    'path_num': path_num,
+                    'path_len': path_len,
                     'edges': edges,
                     'responses_length': responses_length,
                     'post_ent': post_ent,
