@@ -15,12 +15,12 @@ trans_units: 100
 gnn_layers: 3
 fact_dropout: 0.0
 fact_scale: 1
-beam_search_width: 100
+beam_search_width: 200
 max_hop: 2
 max_candidate_size: 50
-result_dir_name: "_result.txt"
+result_dir_name: "result1.txt"
 model_save_name: "model"
 generated_text_name: "generated_text"
-log_dir: "_log.txt"
-tensorboard_path: "./test"
-to_generate: True
+log_dir: "log1.txt"
+tensorboard_path: "./bs_v3_2"
+to_generate: False

@@ -21,7 +21,7 @@ def prepare_data(config):
     data_train, data_test = [], []
 
     if config.is_train:
-        with open('%s/_trainset4bs.txt' % config.data_dir) as f:
+        with open('%s/trainset4bs.txt' % config.data_dir) as f:
             for idx, line in enumerate(f):
                 if idx == 99999: break
 
@@ -29,7 +29,7 @@ def prepare_data(config):
                     print('read train file line %d' % idx)
                 data_train.append(json.loads(line))
     
-    with open('%s/_testset4bs.txt' % config.data_dir) as f:
+    with open('%s/testset4bs.txt' % config.data_dir) as f:
         for line in f:
             data_test.append(json.loads(line))
     
