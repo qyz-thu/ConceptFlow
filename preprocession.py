@@ -173,11 +173,6 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
         post_ent_len.append(len(item['post_ent']))
         response_ent.append(item['response_ent'] + [-1 for j in range(decoder_len - len(item['response_ent']))])
 
-        # # ground-truth path
-        # for i in range(len(item['paths'])):
-        #     item['paths'][i].append(0)
-        # paths.append(item['paths'])
-
         if not is_inference:
             paths = item['paths']
             path_num.append(len(paths))

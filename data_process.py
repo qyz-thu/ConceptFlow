@@ -3,7 +3,6 @@ import time
 
 adj_table = dict()
 data_dir = "../ConceptFlow/data/data/"
-# candidate_size = 50
 
 
 def get_path(post_ent, res_ent):
@@ -53,7 +52,6 @@ def process_train(src_path, dst_path):
     for i in f:
         processed += 1
     f_w = open(data_dir + dst_path, 'a')
-    # log = open(data_dir + 'checklist.txt', 'w')
     print('process train to %s from line %d' % (dst_path, processed))
     three_hop = 0
     four_hop = 0
@@ -77,9 +75,7 @@ def process_train(src_path, dst_path):
             path = get_path(post_ent, response_ent)
 
             # subgraph consists of zero-hop entities and entities from all shortest path for every golden entities
-            edge_in_path = dict()
             paths = list()
-            # memo = {'id': 0, 'long_path': []}
             for p in path:
                 for pp in p:
                     # if len(pp) > 3:
@@ -111,9 +107,6 @@ def process_train(src_path, dst_path):
                 for v in edge_list[e]:
                     edges[0] += [e, v]
                     edges[1] += [v, e]
-            # if len(memo['long_path']) > 0:
-            #     memo['id'] = i
-            #     log.write(json.dumps(memo) + '\n')
 
             n_data = {'post': data['post'], 'response': data['response'], 'post_ent': post_ent, 'response_ent': response_ent,
                       'paths': paths, 'subgraph': subgraph, 'edges': edges
@@ -121,7 +114,6 @@ def process_train(src_path, dst_path):
             f_w.write(json.dumps(n_data) + '\n')
     print(three_hop, four_hop, five_hop)
     f_w.close()
-    # log.close()
 
 
 def process1():

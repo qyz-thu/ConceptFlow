@@ -175,9 +175,9 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_tes
         if config.to_generate:
             write_batch_res_text(word_index, id2word)
 
+        writer.add_scalar('test_loss/', decoder_loss.data, count)
         if count % 50 == 0:
             print("iteration for evaluate:", count, "loss:", decoder_loss.data)
-            writer.add_scalar('test_loss/', decoder_loss.data, count)
     entity_recall /= count
     entity_precision /= count
     total_graph_size /= count
