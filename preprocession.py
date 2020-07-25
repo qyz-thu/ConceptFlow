@@ -29,7 +29,7 @@ def prepare_data(config):
                     print('read train file line %d' % idx)
                 data_train.append(json.loads(line))
     
-    with open('%s/testset4bs.txt' % config.data_dir) as f:
+    with open('%s/_testset4bs.txt' % config.data_dir) as f:
         for line in f:
             data_test.append(json.loads(line))
     
@@ -142,6 +142,8 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
     edges = []
     path_num = []
     path_len = []
+    train_graph_node = []
+    train_graph_edges = []
     match_entity = np.full((len(data), decoder_len), -1, dtype=int)
 
     def padding(sent, l):
@@ -180,12 +182,17 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
             graph_input_tmp = []
             output_mask_tmp = []
             path_len_tmp = []
+            graph_node_tmp = []
+            graph_edge_tmp = []
             for j in range(max_path_num):
                 if j < len(paths):
                     path = paths[j]
                     path_len_tmp.append(len(path) + 1)  # 1 for EOP
                     path_candidate = []
                     path_output_mask = []
+                    graph_node = []
+                    graph_edges = []
+                    all_nodes = dict()
                     for i in range(max_path_len):
                         if i == 0:
                             candidate = [e for e in zero_hop if e != path[0]]
@@ -193,7 +200,26 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                                 random.shuffle(candidate)
                                 candidate = candidate[:max_candidate_size - 2]
                             candidate += [0]    # add the EOP token
-                            path_candidate.append([path[0]] + candidate + [1] * (max_candidate_size - len(candidate) - 1)) # 1 is the padding token
+                            if path[0] not in all_nodes:
+                                all_nodes[path[0]] = len(all_nodes)
+                            for c in candidate:
+                                if c not in all_nodes:
+                                    all_nodes[c] = len(all_nodes)
+
+                            new_nodes = [x for x in [path[0]] + candidate]
+                            graph_node.append(new_nodes)
+                            head, tail = [], []
+                            for j in range(len(new_nodes)):
+                                n1 = new_nodes[j]
+                                head.append(all_nodes[n1])
+                                tail.append(all_nodes[n1])
+                                for k in range(j + 1, len(new_nodes)):
+                                    n2 = new_nodes[k]
+                                    if n1 in adj_table[n2]:
+                                        head += [all_nodes[n1], all_nodes[n2]]
+                                        tail += [all_nodes[n2], all_nodes[n1]]
+                            graph_edges.append([head, tail])
+                            path_candidate.append([all_nodes[e] for e in [path[0]] + candidate])
                             path_output_mask.append([1] * (len(candidate) + 1) + [0] * (max_candidate_size - len(candidate) - 1))
                         elif i <= len(path):
                             ground_truth_ent = path[i] if i < len(path) else 0  # 0 is the EOP token
@@ -202,21 +228,47 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                                 random.shuffle(candidate)
                                 candidate = candidate[:max_candidate_size - 2]
                             candidate += [0]
-                            path_candidate.append([ground_truth_ent] + candidate + [1] * (max_candidate_size - len(candidate) - 1))
+                            new_nodes = [x for x in [ground_truth_ent] + candidate if x not in all_nodes]
+                            graph_node.append(new_nodes)
+                            if ground_truth_ent not in all_nodes:
+                                all_nodes[ground_truth_ent] = len(all_nodes)
+                            for c in candidate:
+                                if c not in all_nodes:
+                                    all_nodes[c] = len(all_nodes)
+                            head, tail = [], []
+                            for n1 in new_nodes:
+                                head.append(all_nodes[n1])
+                                tail.append(all_nodes[n1])
+                                for n2 in all_nodes:
+                                    if n1 == n2:
+                                        break
+                                    if n1 in adj_table[n2]:
+                                        head += [all_nodes[n1], all_nodes[n2]]
+                                        tail += [all_nodes[n2], all_nodes[n1]]
+                            graph_edges.append([head, tail])
+                            path_candidate.append([all_nodes[e] for e in [ground_truth_ent] + candidate])
                             path_output_mask.append([1] * (len(candidate) + 1) + [0] * (max_candidate_size - len(candidate) - 1))
                         else:
-                            path_candidate.append([1] * max_candidate_size)
                             path_output_mask.append([0] * max_candidate_size)
+                    # check correctness
+                    index = 0
+                    for nodes in graph_node:
+                        for node in nodes:
+                            assert all_nodes[node] == index
+                            index += 1
+
                     graph_input_tmp.append(path_candidate)
                     output_mask_tmp.append(path_output_mask)
+                    graph_node_tmp.append(graph_node)
+                    graph_edge_tmp.append(graph_edges)
                 else:
-                    graph_input_tmp.append([[1 for k in range(max_candidate_size)] for l in range(max_path_len)])
+                    # graph_input_tmp.append([[1 for k in range(max_candidate_size)] for l in range(max_path_len)])
                     output_mask_tmp.append([[0 for k in range(max_candidate_size)] for l in range(max_path_len)])
             path_len.append(path_len_tmp)
             # check correctness
             for i, path in enumerate(paths):
                 for j, node in enumerate(path):
-                    assert graph_input_tmp[i][j][0] == node
+                    # assert graph_input_tmp[i][j][0] == node
                     if j == 0:
                         for k in range(max_candidate_size):
                             if k < len(zero_hop) + 1:
@@ -229,10 +281,12 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                                 assert output_mask_tmp[i][j][k] == 1
                             else:
                                 assert output_mask_tmp[i][j][k] == 0
-                assert graph_input_tmp[i][len(path)][0] == 0
+                # assert graph_input_tmp[i][len(path)][0] == 0
 
             graph_input.append(graph_input_tmp)
             output_mask.append(output_mask_tmp)
+            train_graph_node.append(graph_node_tmp)
+            train_graph_edges.append(graph_edge_tmp)
 
         subgraph_tmp = item['subgraph']
         subgraph_len_tmp = len(subgraph_tmp)
@@ -256,18 +310,22 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
         next_id += 1
 
     # graph_input = np.array(graph_input)
-    # output_mask = np.array(output_mask)
+    if not is_inference:
+        output_mask = np.array(output_mask)
     # assert graph_input.shape == (config.batch_size, max_path_num, max_path_len, max_candidate_size)
-    # assert output_mask.shape == (config.batch_size, max_path_num, max_path_len, max_candidate_size)
+        assert output_mask.shape == (config.batch_size, max_path_num, max_path_len, max_candidate_size)
     batched_data = {'post_text': np.array(posts_id),
                     'response_text': np.array(responses_id),
                     'subgraph': np.array(subgraph),
                     'subgraph_size': subgraph_length,
-                    'graph_input': np.array(graph_input),
-                    'output_mask': np.array(output_mask),
+                    'graph_input': graph_input,
+                    'output_mask': output_mask,
                     'path_num': path_num,
                     'path_len': path_len,
+                    'max_candidate_size': max_candidate_size,
                     'edges': edges,
+                    'train_graph_nodes': train_graph_node,
+                    'train_graph_edges': train_graph_edges,
                     'responses_length': responses_length,
                     'post_ent': post_ent,
                     'post_ent_len': post_ent_len,

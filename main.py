@@ -121,6 +121,7 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
 
 
 def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_test=False, model_path=None):
+    eval_start_time = time.time()
     if model_path:
         model.load_state_dict(torch.load(model_path))
     sentence_ppx_loss = 0
@@ -177,7 +178,7 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_tes
 
         writer.add_scalar('test_loss/', decoder_loss.data, count)
         if count % 50 == 0:
-            print("iteration for evaluate:", count, "loss:", decoder_loss.data)
+            print("iteration for evaluate:", count, "loss:", decoder_loss.data, "time used: ", time.time() - eval_start_time)
     entity_recall /= count
     entity_precision /= count
     total_graph_size /= count
@@ -196,9 +197,9 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_tes
     writer.add_scalar('test_ppl/ppl', ppl, epoch)
     writer.add_scalar('test_ppl/word_ppl', word_ppl, epoch)
     writer.add_scalar('test_ppl/entity_ppl', entity_ppl, epoch)
-    writer.add_scalar('recall', entity_recall, epoch)
-    writer.add_scalar('precision', entity_precision, epoch)
-    writer.add_scalar('graph_size', total_graph_size, epoch)
+    writer.add_scalar('graph/recall', entity_recall, epoch)
+    writer.add_scalar('graph/precision', entity_precision, epoch)
+    writer.add_scalar('graph/graph_size', total_graph_size, epoch)
     with open(config.log_dir, 'a') as f:
         f.write("perplexity on testset: %.2f word ppl: %.2f entity ppl: %.2f\n" % (ppl, word_ppl, entity_ppl))
         f.write("response entity recall: %.2f; precision: %.2f\n" % (entity_recall, entity_precision))

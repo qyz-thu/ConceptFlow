@@ -263,7 +263,7 @@ def process4():
     pre-compute the 'max_path_len' and 'max_candidate_size' for every sample
     """
     f_w = open(data_dir + '__trainset4bs.txt', 'w')
-    with open(data_dir + 'trainset4bs.txt') as f:
+    with open(data_dir + '_trainset4bs.txt') as f:
         for line in f:
             data = json.loads(line)
             paths = data['paths']
