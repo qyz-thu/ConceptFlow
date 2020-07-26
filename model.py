@@ -179,9 +179,9 @@ class ConceptFlow(nn.Module):
             subgraph_len = []
             match_entity = [[] for bs in range(batch_size)]
             for b in range(batch_size):
-                graph_nodes = []
-                graph_edges = [[], []]
-                all_nodes = dict()
+                # graph_nodes = []
+                # graph_edges = [[], []]
+                # all_nodes = dict()
                 for t in range(self.max_hop + 1):
                     if t == 0:  # select zero-hop
                         graph_context = text_encoder_state[self.layers-2: self.layers-1, b: b+1, :].transpose(0, 1)
@@ -190,9 +190,9 @@ class ConceptFlow(nn.Module):
 
                         # get entity representation from GAT layer
                         graph = dgl.DGLGraph()
-                        graph_nodes += post_ent[b]
+                        # graph_nodes = post_ent[b]
                         head, tail = [], []
-                        # all_nodes_tmp = dict()
+                        all_nodes = dict()
                         for node in post_ent[b]:
                             all_nodes[node] = len(all_nodes)
                         for i in range(len(post_ent[b])):
@@ -206,8 +206,8 @@ class ConceptFlow(nn.Module):
                                     tail += [all_nodes[n2], all_nodes[n1]]
                         graph.add_nodes(len(post_ent[b]))
                         graph.add_edges(head, tail)
-                        graph_edges[0] += head
-                        graph_edges[1] += tail
+                        # graph_edges[0] += head
+                        # graph_edges[1] += tail
                         candidate_embed = self.entity_embedding(use_cuda(torch.LongTensor(post_ent[b])))
                         gat_output = self.GAT(graph, candidate_embed).squeeze() # (N, trans_units), N is the size of candidates
 
@@ -240,50 +240,72 @@ class ConceptFlow(nn.Module):
 
                     past_probs = []
                     path_candidates = []
-                    all_candidates_local = []     # local index of candidates in every path
-                    all_candidates_global = []    # global index of candidates in every path
-                    new_nodes = []
-                    all_nodes_tmp = dict()
-                    for node in all_nodes:
-                        all_nodes_tmp[node] = all_nodes[node]
+                    # all_candidates_local = []     # local index of candidates in every path
+                    # all_candidates_global = []    # global index of candidates in every path
+                    # new_nodes = []
+                    # all_nodes_tmp = dict()
+                    # for node in all_nodes:
+                    #     all_nodes_tmp[node] = all_nodes[node]
+                    # for i, e in enumerate(next_ent):
+                    #     if e != 0 and e != 1:
+                    #         candidates = [x for x in self.adj_table[e] if x not in all_paths[i]] + [0]
+                    #         new_node = [x for x in candidates if x not in all_nodes_tmp]
+                    #         new_nodes += new_node
+                    #         for x in new_node:
+                    #             all_nodes_tmp[x] = len(all_nodes_tmp)
+                    #         all_candidates_global.append(candidates)
+                    #         all_candidates_local.append([all_nodes_tmp[x] for x in candidates])
+                    #     else:
+                    #         all_candidates_global.append([])
+                    #         all_candidates_local.append([])
+                    # graph_nodes_tmp = graph_nodes + new_nodes
+                    # head, tail = [], []
+                    # for n1 in new_nodes:
+                    #     head.append(all_nodes_tmp[n1])
+                    #     tail.append(all_nodes_tmp[n1])
+                    #     for n2 in all_nodes_tmp:
+                    #         if n1 == n2:
+                    #             break
+                    #         if n1 in self.adj_table[n2]:
+                    #             head += [all_nodes_tmp[n1], all_nodes_tmp[n2]]
+                    #             tail += [all_nodes_tmp[n2], all_nodes_tmp[n1]]
+                    # head += graph_edges[0]
+                    # tail += graph_edges[1]
+                    # graph = dgl.DGLGraph()
+                    # graph.add_nodes(len(graph_nodes_tmp))
+                    # graph.add_edges(head, tail)
+                    # entity_embed = self.entity_embedding(use_cuda(torch.LongTensor(graph_nodes_tmp)))
+                    # gat_output = self.GAT(graph, entity_embed).squeeze()
+
+                    # use all_paths to create graph for every path
                     for i, e in enumerate(next_ent):
                         if e != 0 and e != 1:
-                            candidates = [x for x in self.adj_table[e] if x not in all_paths[i]] + [0]
-                            new_node = [x for x in candidates if x not in all_nodes_tmp]
-                            new_nodes += new_node
-                            for x in new_node:
-                                all_nodes_tmp[x] = len(all_nodes_tmp)
-                            all_candidates_global.append(candidates)
-                            all_candidates_local.append([all_nodes_tmp[x] for x in candidates])
-                        else:
-                            all_candidates_global.append([])
-                            all_candidates_local.append([])
-                    graph_nodes_tmp = graph_nodes + new_nodes
-                    head, tail = [], []
-                    for n1 in new_nodes:
-                        head.append(all_nodes_tmp[n1])
-                        tail.append(all_nodes_tmp[n1])
-                        for n2 in all_nodes_tmp:
-                            if n1 == n2:
-                                break
-                            if n1 in self.adj_table[n2]:
-                                head += [all_nodes_tmp[n1], all_nodes_tmp[n2]]
-                                tail += [all_nodes_tmp[n2], all_nodes_tmp[n1]]
-                    head += graph_edges[0]
-                    tail += graph_edges[1]
-                    graph = dgl.DGLGraph()
-                    graph.add_nodes(len(graph_nodes_tmp))
-                    graph.add_edges(head, tail)
-                    entity_embed = self.entity_embedding(use_cuda(torch.LongTensor(graph_nodes_tmp)))
-                    gat_output = self.GAT(graph, entity_embed).squeeze()
-                    for i, e in enumerate(next_ent):
-                        if e != 0 and e != 1:
-                            candidates = all_candidates_local[i]
-                            path_candidates += [all_paths[i] + [x] for x in all_candidates_global[i]]
+                            graph_nodes = all_paths[i] + [x for x in self.adj_table[e] if x not in all_paths[i]]
+                            candidates = [x for x in self.adj_table[e] if x not in all_paths[i]] # global index of candidates
+                            path_candidates += [all_paths[i] + [x] for x in candidates]
+                            all_nodes = dict()
+                            for x in graph_nodes:
+                                all_nodes[x] = len(all_nodes)
+                            graph = dgl.DGLGraph()
+                            graph.add_nodes(len(graph_nodes))
+                            head, tail = [], []
+                            for j in range(len(graph_nodes)):
+                                n1 = graph_nodes[j]
+                                head.append(all_nodes[n1])
+                                tail.append(all_nodes[n1])
+                                for k in range(j + 1, len(graph_nodes)):
+                                    n2 = graph_nodes[k]
+                                    if n1 in self.adj_table[n2]:
+                                        head += [all_nodes[n1], all_nodes[n2]]
+                                        tail += [all_nodes[n1], all_nodes[n2]]
+                            graph.add_edges(head, tail)
+                            gat_output = self.GAT(graph, self.entity_embedding(use_cuda(torch.LongTensor(graph_nodes))))
+                            candidates_local = [all_nodes[x] for x in candidates]   # local index of candidates
+                            candidate_embed = gat_output[candidates_local].squeeze()
+
                             past_probs += [paths_prob[i]] * len(candidates)
-                            candidate_embed = gat_output[candidates]
                             graph_output = all_graph_output.squeeze()[i]
-                            logits = torch.matmul(candidate_embed, self.graph_prob_linear(graph_output))
+                            logits = torch.matmul(candidate_embed, self.graph_prob_linear(graph_output)).reshape([-1])
                             logits += self.bias
                             all_logits = torch.cat([all_logits, logits], dim=0)
                     all_probs = torch.sigmoid(all_logits).detach().cpu().numpy().tolist()
@@ -312,25 +334,27 @@ class ConceptFlow(nn.Module):
                     paths_prob = new_prob
                     if sum(next_ent) == 0:
                         break
-                    new_nodes = list(set([x for x in new_ent if x not in all_nodes]))
-                    for node in new_nodes:
-                        all_nodes[node] = len(all_nodes)
-                    graph_nodes += new_nodes
-                    head, tail = [], []
-                    for n1 in new_nodes:
-                        head.append(all_nodes_tmp[n1])
-                        tail.append(all_nodes_tmp[n1])
-                        for n2 in all_nodes_tmp:
-                            if n1 == n2:
-                                break
-                            if n1 in self.adj_table[n2]:
-                                head += [all_nodes_tmp[n1], all_nodes_tmp[n2]]
-                                tail += [all_nodes_tmp[n2], all_nodes_tmp[n1]]
-                    graph_edges[0] += head
-                    graph_edges[1] += tail
+                    # new_nodes = list(set([x for x in new_ent if x not in all_nodes]))
+                    # for node in new_nodes:
+                    #     all_nodes[node] = len(all_nodes)
+                    # graph_nodes += new_nodes
+                    # head, tail = [], []
+                    # for n1 in new_nodes:
+                    #     head.append(all_nodes_tmp[n1])
+                    #     tail.append(all_nodes_tmp[n1])
+                    #     for n2 in all_nodes_tmp:
+                    #         if n1 == n2:
+                    #             break
+                    #         if n1 in self.adj_table[n2]:
+                    #             head += [all_nodes_tmp[n1], all_nodes_tmp[n2]]
+                    #             tail += [all_nodes_tmp[n2], all_nodes_tmp[n1]]
+                    # graph_edges[0] += head
+                    # graph_edges[1] += tail
 
+                # get subgraph from retrieved paths
                 graph_nodes = set()
                 graph_edges = [[], []]
+                edge_list = dict()
                 for path in all_paths:
                     prior = None
                     for node in path:
@@ -340,10 +364,17 @@ class ConceptFlow(nn.Module):
                         if prior:
                             head = max(prior, node)
                             tail = prior + node - head
-                            graph_edges[0] += [head, tail]
-                            graph_edges[1] += [tail, head]
+                            if head not in edge_list:
+                                edge_list[head] = set()
+                            edge_list[head].add(tail)
                         prior = node
+                for head in edge_list:
+                    for tail in edge_list[head]:
+                        graph_edges[0] += [head, tail]
+                        graph_edges[1] += [tail, head]
                 graph_nodes = list(graph_nodes)
+                graph_edges[0] += graph_nodes
+                graph_edges[1] += graph_nodes
                 subgraph.append(graph_nodes)
                 subgraph_len.append(len(graph_nodes))
                 edges.append(graph_edges)
@@ -575,12 +606,8 @@ class ConceptFlow(nn.Module):
             for p in range(len(nodes[b])):
                 batch_node = nodes[b][p]
                 batch_edge = edges[b][p]
-                # node_index = []     # global index of nodes in every graph
-                # edge_index = [[], []]      # local index of edges in every graph
                 for l in range(len(batch_node)):
                     node_index = batch_node[l]
-                    # edge_index[0] += batch_edge[l][0]
-                    # edge_index[1] += batch_edge[l][1]
                     graph = dgl.DGLGraph()
                     graph.add_nodes(len(node_index))
                     graph.add_edges(batch_edge[l][0], batch_edge[l][1])
