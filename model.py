@@ -575,15 +575,15 @@ class ConceptFlow(nn.Module):
             for p in range(len(nodes[b])):
                 batch_node = nodes[b][p]
                 batch_edge = edges[b][p]
-                node_index = []     # global index of nodes in every graph
-                edge_index = [[], []]      # local index of edges in every graph
+                # node_index = []     # global index of nodes in every graph
+                # edge_index = [[], []]      # local index of edges in every graph
                 for l in range(len(batch_node)):
-                    node_index += batch_node[l]
-                    edge_index[0] += batch_edge[l][0]
-                    edge_index[1] += batch_edge[l][1]
+                    node_index = batch_node[l]
+                    # edge_index[0] += batch_edge[l][0]
+                    # edge_index[1] += batch_edge[l][1]
                     graph = dgl.DGLGraph()
                     graph.add_nodes(len(node_index))
-                    graph.add_edges(edge_index[0], edge_index[1])
+                    graph.add_edges(batch_edge[l][0], batch_edge[l][1])
                     node_embed = self.entity_embedding(use_cuda(torch.LongTensor(node_index)))
                     graph.ndata['h'] = node_embed
                     graph_list.append(graph)
@@ -610,7 +610,8 @@ class ConceptFlow(nn.Module):
             batch_padding = use_cuda(torch.zeros([max_num - M, max_len, max_candidate_size, self.trans_units]))
             batch_input = torch.cat([batch_input, batch_padding], dim=0).unsqueeze(0)   # (1, max_num, max_len, max_candidate, trans_units)
             graph_input = torch.cat([graph_input, batch_input], dim=0)
-        return graph_input
+        assert index == len(graph_list)
+        return graph_input  # （bs, max_num, max_len, max_candidate, trans_units)
 
     def construct_graph(self, subgraphs, edges):
         graph_list = []
