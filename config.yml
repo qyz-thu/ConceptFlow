@@ -22,5 +22,5 @@ result_dir_name: "result1.txt"
 model_save_name: "model"
 generated_text_name: "generated_text"
 log_dir: "log1.txt"
-tensorboard_path: "./gat_2"
+tensorboard_path: "./test"
 to_generate: False

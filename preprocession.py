@@ -21,7 +21,7 @@ def prepare_data(config):
     data_train, data_test = [], []
 
     if config.is_train:
-        with open('%s/trainset4bs.txt' % config.data_dir) as f:
+        with open('%s/_trainset4bs.txt' % config.data_dir) as f:
             for idx, line in enumerate(f):
                 if idx == 99999: break
 
@@ -192,6 +192,7 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                     path_output_mask = []
                     graph_node = []
                     graph_edges = []
+                    all_nodes = dict()
                     for i in range(max_path_len):
                         if i == 0:
                             candidate = [e for e in zero_hop if e != path[0]]
@@ -199,10 +200,13 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                                 random.shuffle(candidate)
                                 candidate = candidate[:max_candidate_size - 2]
                             candidate += [0]    # add the EOP token
-                            all_nodes = dict()
-                            new_nodes = [path[0]] + candidate
-                            for node in new_nodes:
-                                all_nodes[node] = len(all_nodes)
+                            if path[0] not in all_nodes:
+                                all_nodes[path[0]] = len(all_nodes)
+                            for c in candidate:
+                                if c not in all_nodes:
+                                    all_nodes[c] = len(all_nodes)
+
+                            new_nodes = [x for x in [path[0]] + candidate]
                             graph_node.append(new_nodes)
                             head, tail = [], []
                             for j in range(len(new_nodes)):
@@ -224,11 +228,13 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                                 random.shuffle(candidate)
                                 candidate = candidate[:max_candidate_size - 2]
                             candidate += [0]
-                            all_nodes = dict()
-                            new_nodes = list(set([path[j] for j in range(i)] + [ground_truth_ent] + candidate))
+                            new_nodes = [x for x in [ground_truth_ent] + candidate if x not in all_nodes]
                             graph_node.append(new_nodes)
-                            for node in new_nodes:
-                                all_nodes[node] = len(all_nodes)
+                            if ground_truth_ent not in all_nodes:
+                                all_nodes[ground_truth_ent] = len(all_nodes)
+                            for c in candidate:
+                                if c not in all_nodes:
+                                    all_nodes[c] = len(all_nodes)
                             head, tail = [], []
                             for n1 in new_nodes:
                                 head.append(all_nodes[n1])
@@ -244,9 +250,12 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                             path_output_mask.append([1] * (len(candidate) + 1) + [0] * (max_candidate_size - len(candidate) - 1))
                         else:
                             path_output_mask.append([0] * max_candidate_size)
-                    for j, nodes in enumerate(graph_node):
-                        for k in range(j + 1):
-                            assert path[k] in nodes
+                    # check correctness
+                    index = 0
+                    for nodes in graph_node:
+                        for node in nodes:
+                            assert all_nodes[node] == index
+                            index += 1
 
                     graph_input_tmp.append(path_candidate)
                     output_mask_tmp.append(path_output_mask)
