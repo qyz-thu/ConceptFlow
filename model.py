@@ -162,12 +162,10 @@ class ConceptFlow(nn.Module):
                     h = graph_context
                 else:
                     ground_truth = graph_input[:, t-1:t, 0]     # (bs * max_num, 1, trans_units)
-                    # embed = self.entity_embedding(ground_truth_ent)     # (bs * max_num, 1, trans_units)
                     graph_context = self.graph_convt_linear(torch.cat([graph_context, ground_truth], dim=2))
                     graph_output, graph_decoder_state = self.graph_decoder(graph_context, graph_decoder_state)
                     h = torch.cat([h, graph_output], dim=1)
             # size of h: (batch*max_num, max_len, D)
-            # input_embed = self.entity_embedding(graph_input)
             logits = torch.matmul(graph_input, self.graph_prob_linear(h).unsqueeze(3)).reshape(batch_size, max_path_num, max_path_len, -1)
             logits += self.bias
             retrieval_loss = F.binary_cross_entropy_with_logits(logits, graph_target, weight=output_mask, reduction='sum')
@@ -179,9 +177,7 @@ class ConceptFlow(nn.Module):
             subgraph_len = []
             match_entity = [[] for bs in range(batch_size)]
             for b in range(batch_size):
-                # graph_nodes = []
-                # graph_edges = [[], []]
-                # all_nodes = dict()
+
                 for t in range(self.max_hop + 1):
                     if t == 0:  # select zero-hop
                         graph_context = text_encoder_state[self.layers-2: self.layers-1, b: b+1, :].transpose(0, 1)
@@ -206,8 +202,7 @@ class ConceptFlow(nn.Module):
                                     tail += [all_nodes[n2], all_nodes[n1]]
                         graph.add_nodes(len(post_ent[b]))
                         graph.add_edges(head, tail)
-                        # graph_edges[0] += head
-                        # graph_edges[1] += tail
+
                         candidate_embed = self.entity_embedding(use_cuda(torch.LongTensor(post_ent[b])))
                         gat_output = self.GAT(graph, candidate_embed).squeeze() # (N, trans_units), N is the size of candidates
 

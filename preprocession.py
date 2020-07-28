@@ -21,7 +21,7 @@ def prepare_data(config):
     data_train, data_test = [], []
 
     if config.is_train:
-        with open('%s/_trainset4bs.txt' % config.data_dir) as f:
+        with open('%s/trainset4bs500k.txt' % config.data_dir) as f:
             for idx, line in enumerate(f):
                 if idx == 99999: break
 
@@ -187,7 +187,7 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
             for j in range(max_path_num):
                 if j < len(paths):
                     path = paths[j] + [0]
-                    path_len_tmp.append(len(path))  # 1 for EOP
+                    path_len_tmp.append(len(path))
                     path_candidate = []
                     path_output_mask = []
                     graph_node = []
