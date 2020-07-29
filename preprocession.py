@@ -235,11 +235,8 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                             new_nodes = [x for x in [ground_truth_ent] + candidate if x not in all_nodes]
                             relation = [adj_table[path[i-1]][e] if e != 0 else entity2id['RelatedTo'] for e in new_nodes]
                             graph_node.append(new_nodes)
-                            if ground_truth_ent not in all_nodes:
-                                all_nodes[ground_truth_ent] = len(all_nodes)
-                            for c in candidate:
-                                if c not in all_nodes:
-                                    all_nodes[c] = len(all_nodes)
+                            for node in new_nodes:
+                                all_nodes[node] = len(all_nodes)
                             head, tail = [], []
                             for n1 in new_nodes:
                                 head.append(all_nodes[n1])
