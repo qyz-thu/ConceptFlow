@@ -21,7 +21,7 @@ def prepare_data(config):
     data_train, data_test = [], []
 
     if config.is_train:
-        with open('%s/trainset4bs500k.txt' % config.data_dir) as f:
+        with open('%s/trainset4bs.txt' % config.data_dir) as f:
             for idx, line in enumerate(f):
                 if idx == 99999: break
 
@@ -54,23 +54,6 @@ def build_vocab(path, raw_vocab, config, trans='transE'):
     with open('%s/relation.txt' % path) as f:
         for line in f:
             relation_list.append(line.strip())
-
-    print('Creating adjacency table...')
-    entity2id = dict()
-    adj_table = dict()
-    for i, e in enumerate(entity_list):
-        entity2id[e] = i
-        adj_table[i] = set()
-    for triple in csk_triples:
-        t = triple.split(',')
-        sbj = t[0]
-        obj = t[2][1:]
-        if sbj not in entity_list or obj not in entity_list:
-            continue
-        id1 = entity2id[sbj]
-        id2 = entity2id[obj]
-        adj_table[id1].add(id2)
-        adj_table[id2].add(id1)
 
     print("Loading word vectors...")
     vectors = {}
@@ -117,6 +100,23 @@ def build_vocab(path, raw_vocab, config, trans='transE'):
     for entity in entity_list + relation_list:
         entity2id[entity] = len(entity2id)
 
+    print('Creating adjacency table...')
+    adj_table = dict()
+    for i, e in enumerate(entity_list):
+        adj_table[i] = dict()
+    for triple in csk_triples:
+        t = triple.split(',')
+        sbj = t[0]
+        obj = t[2][1:]
+        rel = t[1][1:]
+        if sbj not in entity2id or obj not in entity2id or rel not in entity2id:
+            continue
+        id1 = entity2id[sbj]
+        id2 = entity2id[obj]
+        rel = entity2id[rel]
+        adj_table[id1][id2] = rel
+        adj_table[id2][id1] = rel
+
     return word2id, entity2id, vocab_list, embed, entity_list, entity_embed, relation_list, relation_embed, entity_relation_embed, adj_table
 
 
@@ -138,6 +138,7 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
     subgraph_length = []
     # paths = []
     graph_input = []
+    graph_relations = []
     output_mask = []
     edges = []
     path_num = []
@@ -175,11 +176,13 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
         post_ent_len.append(len(item['post_ent']))
         response_ent.append(item['response_ent'] + [-1 for j in range(decoder_len - len(item['response_ent']))])
 
+        # get graph input for training
         if not is_inference:
             paths = item['paths']
             path_num.append(len(paths))
             zero_hop = set(item['post_ent'])
             graph_input_tmp = []
+            graph_relation_tmp = []
             output_mask_tmp = []
             path_len_tmp = []
             graph_node_tmp = []
@@ -189,6 +192,7 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                     path = paths[j] + [0]
                     path_len_tmp.append(len(path))
                     path_candidate = []
+                    path_relation = []
                     path_output_mask = []
                     graph_node = []
                     graph_edges = []
@@ -229,6 +233,7 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                                 candidate = candidate[:max_candidate_size - 2]
                             candidate += [0]
                             new_nodes = [x for x in [ground_truth_ent] + candidate if x not in all_nodes]
+                            relation = [adj_table[path[i-1]][e] if e != 0 else entity2id['RelatedTo'] for e in new_nodes]
                             graph_node.append(new_nodes)
                             if ground_truth_ent not in all_nodes:
                                 all_nodes[ground_truth_ent] = len(all_nodes)
@@ -247,6 +252,7 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                                         tail += [all_nodes[n2], all_nodes[n1]]
                             graph_edges.append([head, tail])
                             path_candidate.append([all_nodes[e] for e in [ground_truth_ent] + candidate])
+                            path_relation.append(relation)
                             path_output_mask.append([1] * (len(candidate) + 1) + [0] * (max_candidate_size - len(candidate) - 1))
                         else:
                             path_output_mask.append([0] * max_candidate_size)
@@ -256,8 +262,13 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                         for node in nodes:
                             assert all_nodes[node] == index
                             index += 1
+                    for j in range(len(graph_node)):
+                        if j == 0:
+                            continue
+                        assert len(graph_node[j]) == len(path_relation[j-1])
 
                     graph_input_tmp.append(path_candidate)
+                    graph_relation_tmp.append(path_relation)
                     output_mask_tmp.append(path_output_mask)
                     graph_node_tmp.append(graph_node)
                     graph_edge_tmp.append(graph_edges)
@@ -284,6 +295,7 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                 # assert graph_input_tmp[i][len(path)][0] == 0
 
             graph_input.append(graph_input_tmp)
+            graph_relations.append(graph_relation_tmp)
             output_mask.append(output_mask_tmp)
             train_graph_node.append(graph_node_tmp)
             train_graph_edges.append(graph_edge_tmp)
@@ -319,6 +331,7 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                     'subgraph': np.array(subgraph),
                     'subgraph_size': subgraph_length,
                     'graph_input': graph_input,
+                    'graph_relation': graph_relations,
                     'output_mask': output_mask,
                     'path_num': path_num,
                     'path_len': path_len,

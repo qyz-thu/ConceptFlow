@@ -80,6 +80,7 @@ class ConceptFlow(nn.Module):
         # linear layer to convert z in graph decoder
         self.graph_convt_linear = nn.Linear(in_features=self.trans_units + self.units, out_features=self.units)
         self.graph_prob_linear = nn.Linear(in_features=self.units, out_features=self.trans_units, bias=False)
+        self.relation_linear = nn.Linear(in_features=2 * self.trans_units, out_features=self.trans_units)
         self.bias = Parameter(torch.FloatTensor(1).zero_())
 
         # GAT
@@ -103,6 +104,7 @@ class ConceptFlow(nn.Module):
 
         if not self.is_inference:
             graph_input = batch_data['graph_input']
+            graph_relation = batch_data['graph_relation']
             output_mask = batch_data['output_mask']
             max_path_num = output_mask.shape[1]
             max_path_len = output_mask.shape[2]
@@ -129,8 +131,7 @@ class ConceptFlow(nn.Module):
         query_mask = use_cuda((query_text != 0).type('torch.FloatTensor'))
 
         if not self.is_inference:
-            # graph_input = use_cuda(Variable(torch.from_numpy(graph_input).type('torch.LongTensor'), requires_grad=False))
-            graph_input = self.get_graph_input(graph_input, train_graph_nodes, train_graph_edges, batch_size, max_path_num, max_path_len, max_candidate_size)
+            graph_input = self.get_graph_input(graph_input, train_graph_nodes, train_graph_edges, graph_relation, batch_size, max_path_num, max_path_len, max_candidate_size)
             output_mask = use_cuda(Variable(torch.from_numpy(output_mask).type('torch.LongTensor'), requires_grad=False))
             graph_target = use_cuda(torch.FloatTensor(output_mask.size()).fill_(0))
             total_sample = torch.sum(output_mask)
@@ -150,10 +151,9 @@ class ConceptFlow(nn.Module):
         # graph decoder
         if not self.is_inference:
             graph_input = graph_input.contiguous().view(batch_size * max_path_num, max_path_len, -1, self.trans_units)    # todo: use reshape?
-            # get graph_context of shape (bs * max_path_num, 1, D), D is the dimension of hidden states
             text_hidden_state = text_encoder_state[self.layers - 1].unsqueeze(1)   # use the hidden states of the last layer in t=seq_len
             graph_context = use_cuda(torch.empty(0))
-            for b in range(batch_size):
+            for b in range(batch_size): # get graph_context of shape (bs * max_path_num, 1, D), D is the dimension of hidden states
                 for n in range(max_path_num):
                     graph_context = torch.cat([graph_context, text_hidden_state[b:b+1, :, :]], dim=0)
             graph_decoder_state = self.init_hidden(self.layers, batch_size * max_path_num, self.units)
@@ -172,9 +172,7 @@ class ConceptFlow(nn.Module):
             retrieval_loss /= total_sample
 
         else:
-            subgraph = []
-            edges = []
-            subgraph_len = []
+            subgraph, edges, subgraph_len = [], [], []
             match_entity = [[] for bs in range(batch_size)]
             for b in range(batch_size):
 
@@ -186,7 +184,6 @@ class ConceptFlow(nn.Module):
 
                         # get entity representation from GAT layer
                         graph = dgl.DGLGraph()
-                        # graph_nodes = post_ent[b]
                         head, tail = [], []
                         all_nodes = dict()
                         for node in post_ent[b]:
@@ -239,9 +236,10 @@ class ConceptFlow(nn.Module):
                     # use all_paths to create graph for every path
                     for i, e in enumerate(next_ent):
                         if e != 0 and e != 1:
-                            graph_nodes = all_paths[i] + [x for x in self.adj_table[e] if x not in all_paths[i]]
-                            candidates = [x for x in self.adj_table[e] if x not in all_paths[i]] # global index of candidates
+                            candidates = [x for x in self.adj_table[e] if x not in all_paths[i]] + [0] # global index of candidates
+                            relations = [self.adj_table[e][x] if x != 0 else entity2id['RelatedTo'] for x in candidates]
                             path_candidates += [all_paths[i] + [x] for x in candidates]
+                            graph_nodes = all_paths[i] + candidates
                             all_nodes = dict()
                             for x in graph_nodes:
                                 all_nodes[x] = len(all_nodes)
@@ -258,7 +256,11 @@ class ConceptFlow(nn.Module):
                                         head += [all_nodes[n1], all_nodes[n2]]
                                         tail += [all_nodes[n1], all_nodes[n2]]
                             graph.add_edges(head, tail)
-                            gat_output = self.GAT(graph, self.entity_embedding(use_cuda(torch.LongTensor(graph_nodes))))
+                            previous_embed = self.entity_embedding(use_cuda(torch.LongTensor(all_paths[i])))
+                            node_embed = self.entity_embedding(use_cuda(torch.LongTensor(candidates)))
+                            rel_embed = self.entity_embedding(use_cuda(torch.LongTensor(relations)))
+                            new_embed = self.relation_linear(torch.cat([node_embed, rel_embed], dim=1))
+                            gat_output = self.GAT(graph, torch.cat([previous_embed, new_embed], dim=0))
                             candidates_local = [all_nodes[x] for x in candidates]   # local index of candidates
                             candidate_embed = gat_output[candidates_local].squeeze()
 
@@ -541,7 +543,7 @@ class ConceptFlow(nn.Module):
         return (use_cuda(Variable(torch.zeros(num_layer, batch_size, hidden_size))),
                 use_cuda(Variable(torch.zeros(num_layer, batch_size, hidden_size))))
 
-    def get_graph_input(self, input, nodes, edges, batch_size, max_num, max_len, max_candidate_size):
+    def get_graph_input(self, input, nodes, edges, relation, batch_size, max_num, max_len, max_candidate_size):
         graph_input = use_cuda(torch.empty(0))
         assert len(input) == batch_size
         graph_list = []
@@ -549,16 +551,23 @@ class ConceptFlow(nn.Module):
             for p in range(len(nodes[b])):
                 batch_node = nodes[b][p]
                 batch_edge = edges[b][p]
+                batch_relation = relation[b][p]
                 node_index = []     # global index of nodes in every graph
                 edge_index = [[], []]      # local index of edges in every graph
                 for l in range(len(batch_node)):
+                    previous_node_embed = self.entity_embedding(use_cuda(torch.LongTensor(node_index)))
+                    new_node_embed = self.entity_embedding(use_cuda(torch.LongTensor(batch_node[l])))
+                    if l > 0:
+                        relation_index = batch_relation[l - 1]
+                        relation_embed = self.entity_embedding(use_cuda(torch.LongTensor(relation_index)))
+                        new_node_embed = self.relation_linear(torch.cat([new_node_embed, relation_embed], dim=1))
+                    node_embed = torch.cat([previous_node_embed, new_node_embed], dim=0)
                     node_index += batch_node[l]
                     edge_index[0] += batch_edge[l][0]
                     edge_index[1] += batch_edge[l][1]
                     graph = dgl.DGLGraph()
                     graph.add_nodes(len(node_index))
                     graph.add_edges(edge_index[0], edge_index[1])
-                    node_embed = self.entity_embedding(use_cuda(torch.LongTensor(node_index)))
                     graph.ndata['h'] = node_embed
                     graph_list.append(graph)
         batched_graph = dgl.batch(graph_list)
@@ -612,4 +621,3 @@ class ConceptFlow(nn.Module):
             node_features = graph_list[i].ndata['h'].squeeze(1)
             gat_output.append(node_features)
         return nn_utils.rnn.pad_sequence(gat_output, batch_first=True, padding_value=0)
-
