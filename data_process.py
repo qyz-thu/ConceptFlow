@@ -102,7 +102,7 @@ def process_train(src_path, dst_path):
                     prior = e
                     subgraph.add(e)
             subgraph = list(subgraph)
-            edges = [[], []]
+            edges = [[subgraph], [subgraph]]
             for e in edge_list:
                 for v in edge_list[e]:
                     edges[0] += [e, v]
@@ -150,9 +150,10 @@ def process1():
             f.write(json.dumps(data) + '\n')
 
 
-def process2(entity2id):
+def process2(entity2id, adj_table):
     """
     count the recall and precision of conceptflow graph
+    extended to 3-hop using filtered 2-hop concepts
     """
     f = open(data_dir + 'resource.txt')
     d = json.loads(f.readline())
@@ -194,17 +195,22 @@ def process2(entity2id):
                 if csk_entities[oh] in entity2id:
                     graph.add(entity2id[csk_entities[oh]])
             # add two hop
+            two_hops = set()
             for th in data['only_two']:
                 if csk_entities[th] in entity2id:
                     graph.add(entity2id[csk_entities[th]])
-            graph_size += len(data['all_entities_one_hop'])
-            graph_size += len(data['only_two'])
-            total_graph_size += graph_size
+                    two_hops.add(entity2id[csk_entities[th]])
+            # add three hop
+            for th in two_hops:
+                for three in adj_table[th]:
+                    graph.add(three)
+
+            total_graph_size += len(graph)
             res_ent = response_ent[i]
             if len(res_ent) == 0:
                 continue
             hit = len(graph & res_ent)
-            precision += hit / graph_size
+            precision += hit / len(graph)
             recall += hit / len(res_ent)
             count += 1
     precision /= count
@@ -263,7 +269,7 @@ def process4():
     pre-compute the 'max_path_len' and 'max_candidate_size' for every sample
     """
     f_w = open(data_dir + '__trainset4bs.txt', 'w')
-    with open(data_dir + 'trainset4bs.txt') as f:
+    with open(data_dir + 'trainset4bs_full.txt') as f:
         for line in f:
             data = json.loads(line)
             paths = data['paths']
