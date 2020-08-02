@@ -35,6 +35,58 @@ class GAT(nn.Module):
 		return h
 
 
+class RGATLayer(nn.Module):
+    def __init__(self, node_dim, edge_dim, out_dim):
+        super(RGATLayer, self).__init__()
+        self.fc = nn.Linear(in_features=node_dim, out_features=out_dim, bias=False)
+        self.relation_fc = nn.Linear(in_features=node_dim + edge_dim, out_features=node_dim)
+        self.attn_fc = nn.Linear(in_features=2 * out_dim, out_features=1, bias=False)
+        gain = nn.init.calculate_gain('relu')
+        nn.init.xavier_normal_(self.fc.weight, gain)
+        nn.init.xavier_normal_(self.relation_fc.weight, gain)
+        nn.init.xavier_normal_(self.attn_fc.weight, gain)
+
+    def edge_attention(self, edges):
+        # edge UDF for calculating 'z' for each edge
+        end = self.relation_fc(torch.cat([edges.data['h'], edges.dst['z']], dim=1))
+        a = self.attn_fc(torch.cat([edges.src['z'], end], dim=1))
+        return {'e': F.leaky_relu(a)}
+
+    def message_func(self, edges):
+        # edge UDF propagating 'z' and coefficient 'e'
+        return {'z': edges.src['z'], 'e': edges.data['e']}
+
+    def reduce_func(self, nodes):
+        # node UDF executing weighted aggregation for output
+        alpha = F.softmax(nodes.mailbox['e'], dim=1)
+        h = torch.sum(alpha * nodes.mailbox['z'], dim=1)
+        return {'h': h}
+
+    def forward(self, g, input):
+        g.ndata['z'] = self.fc(input)
+        g.apply_edges(self.edge_attention)
+        g.update_all(self.message_func, self.reduce_func)
+        return g.ndata.pop('h')
+
+
+class RGAT(nn.Module):
+    def __init__(self, ent_dim, rel_dim, layers=1, num_head=1):
+        super(RGAT, self).__init__()
+        self.layers = nn.ModuleList()
+        for _ in range(layers):
+            heads = nn.ModuleList()
+            for __ in range(num_head):
+                heads.append(RGATLayer(ent_dim, rel_dim, ent_dim))
+            self.layers.append(heads)
+
+    def forward(self, graph, input):
+        h = input
+        for layer in self.layers:
+            head_outs = [head(graph, h) for head in layer]
+            h = torch.mean(torch.stack(head_outs), dim=0)
+        return h
+
+
 class ConceptFlow(nn.Module):
     def __init__(self, config, word_embed, entity_embed, adj_table):
         super(ConceptFlow, self).__init__()
