@@ -316,7 +316,3 @@ def main():
 
 
 # main()
-with open(data_dir + 'resource.txt') as f:
-    data = f.read()
-    data = json.loads(data)
-    pass

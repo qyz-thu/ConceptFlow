@@ -39,6 +39,7 @@ class ConceptFlow(nn.Module):
     def __init__(self, config, word_embed, entity_embed, adj_table):
         super(ConceptFlow, self).__init__()
         self.is_inference = False
+        self.decode = config.decode
         # Encoder
         self.fact_scale = config.fact_scale
         self.trans_units = config.trans_units
@@ -170,7 +171,6 @@ class ConceptFlow(nn.Module):
             logits += self.bias
             retrieval_loss = F.binary_cross_entropy_with_logits(logits, graph_target, weight=output_mask, reduction='sum')
             retrieval_loss /= total_sample
-
         else:
             subgraph, edges, subgraph_len = [], [], []
             match_entity = [[] for bs in range(batch_size)]
@@ -335,6 +335,30 @@ class ConceptFlow(nn.Module):
             for b in range(batch_size):
                 match_entity[b] += [-1] * (max_graph_size - len(match_entity[b]))
 
+        # get recall & precision
+        if self.is_inference:
+            response_ent_num = 0
+            found_num = 0
+            for b in range(batch_size):
+                entities = set()
+                for i in range(len(subgraph[b])):
+                    if subgraph[b][i] > 0:
+                        entities.add(subgraph[b][i])
+                for d in range(decoder_len):
+                    if response_ent[b][d] == -1:
+                        continue
+                    response_ent_num += 1
+                    if response_ent[b][d] in entities:
+                        found_num += 1
+            total_graph_size = sum(subgraph_len)
+            recall = found_num / response_ent_num
+            precision = found_num / total_graph_size
+
+        if not self.decode:
+            if self.is_inference:
+                return recall, precision, total_graph_size
+            return retrieval_loss
+
         # get subgraph representation
         graph_list = self.construct_graph(subgraph, edges)
         batched_graph = dgl.batch(graph_list)
@@ -399,25 +423,6 @@ class ConceptFlow(nn.Module):
             for d in range(decoder_len):
                 if match_entity[b][d] != -1:
                     graph_entities[b][d][match_entity[b][d]] = 1
-
-        # get recall & precision
-        if self.is_inference:
-            response_ent_num = 0
-            found_num = 0
-            for b in range(batch_size):
-                entities = set()
-                for i in range(len(subgraph[b])):
-                    if subgraph[b][i] > 0:
-                        entities.add(subgraph[b][i])
-                for d in range(decoder_len):
-                    if response_ent[b][d] == -1:
-                        continue
-                    response_ent_num += 1
-                    if response_ent[b][d] in entities:
-                        found_num += 1
-            total_graph_size = sum(subgraph_len)
-            recall = found_num / response_ent_num
-            precision = found_num / total_graph_size
 
         use_entities_local = torch.sum(graph_entities, [2])
 
