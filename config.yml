@@ -13,6 +13,7 @@ linear_dropout: 0.2
 max_gradient_norm: 5
 trans_units: 100
 gnn_layers: 3
+gat_head_num: 1
 fact_dropout: 0.0
 fact_scale: 1
 beam_search_width: 200

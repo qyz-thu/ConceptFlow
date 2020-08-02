@@ -99,6 +99,7 @@ class ConceptFlow(nn.Module):
         self.units = config.units
         self.layers = config.layers
         self.gnn_layers = config.gnn_layers
+        self.head_num = config.head_num
         self.symbols = config.symbols
         self.bs_width = config.beam_search_width
         self.max_hop = config.max_hop
@@ -138,6 +139,7 @@ class ConceptFlow(nn.Module):
 
         # GAT
         self.GAT = GAT(self.trans_units)
+        self.RGAT = RGAT(self.trans_units, self.trans_units, self.gnn_layers, self.head_num)
 
         # Loss
         self.logits_linear = nn.Linear(in_features=self.units, out_features=self.symbols)
@@ -610,25 +612,22 @@ class ConceptFlow(nn.Module):
                 batch_edge = edges[b][p]
                 batch_relation = relation[b][p]
                 node_index = []     # global index of nodes in every graph
-                edge_index = [[], []]      # local index of edges in every graph
+                edge_index_local = [[], []]      # local index of edges in every graph
+                edge_index_global = []      # global index of edges
                 for l in range(len(batch_node)):
-                    previous_node_embed = self.entity_embedding(use_cuda(torch.LongTensor(node_index)))
-                    new_node_embed = self.entity_embedding(use_cuda(torch.LongTensor(batch_node[l])))
-                    if l > 0:
-                        relation_index = batch_relation[l - 1]
-                        relation_embed = self.entity_embedding(use_cuda(torch.LongTensor(relation_index)))
-                        new_node_embed = self.relation_linear(torch.cat([new_node_embed, relation_embed], dim=1))
-                    node_embed = torch.cat([previous_node_embed, new_node_embed], dim=0)
                     node_index += batch_node[l]
-                    edge_index[0] += batch_edge[l][0]
-                    edge_index[1] += batch_edge[l][1]
+                    node_embed = self.entity_embedding(use_cuda(torch.LongTensor(node_index)))
+                    edge_embed = self.entity_embedding(use_cuda(torch.LongTensor(edge_index_global)))
+                    edge_index_local[0] += batch_edge[l][0]
+                    edge_index_local[1] += batch_edge[l][1]
                     graph = dgl.DGLGraph()
                     graph.add_nodes(len(node_index))
-                    graph.add_edges(edge_index[0], edge_index[1])
+                    graph.add_edges(edge_index_local[0], edge_index_local[1])
                     graph.ndata['h'] = node_embed
+                    graph.edata['h'] = edge_embed
                     graph_list.append(graph)
         batched_graph = dgl.batch(graph_list)
-        graph_output = self.GAT(batched_graph, batched_graph.ndata['h'])
+        graph_output = self.RGAT(batched_graph, batched_graph.ndata['h'])
         batched_graph.ndata['h'] = graph_output
         graph_list = dgl.unbatch(batched_graph)
         index = 0

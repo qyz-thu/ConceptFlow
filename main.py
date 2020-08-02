@@ -40,6 +40,7 @@ class Config():
         self.max_gradient_norm = config['max_gradient_norm']
         self.trans_units = config['trans_units']
         self.gnn_layers = config['gnn_layers']
+        self.head_num = config['gat_head_num']
         self.fact_dropout = config['fact_dropout']
         self.fact_scale = config['fact_scale']
         self.result_dir_name = config['result_dir_name']
