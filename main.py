@@ -91,6 +91,9 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
                 if count % 50 == 0:
                     print("iteration: %d, loss: %.4f" % (iteration, retrieval_loss.data))
                     print("time used %.2f" % (time.time() - start_time))
+                if count % 20000 == 0:
+                    eval_count += 1
+                    evaluate(model, data_test, config, word2id, entity2id, eval_count, writer)
                 continue
             decoder_loss, retrieval_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, word_neg_num, entity_neg_num = \
                 run(model, data, config, word2id, entity2id)
@@ -113,9 +116,6 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
                 with open(config.log_dir, 'a') as f:
                     f.write("iteration: %d decode loss: %.4f retr loss: %.4f total loss: %.4f\n" %
                             (iteration, decoder_loss.data, retrieval_loss.data, loss.data))
-            if count % 20000 == 0:
-                eval_count += 1
-                evaluate(model, data_test, config, word2id, entity2id, eval_count, writer)
 
         if config.decode:
             ppl = np.exp(sentence_ppx_loss.cpu() / len(data_train))
