@@ -93,27 +93,28 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
                     print("iteration: %d, loss: %.4f" % (iteration, retrieval_loss.data))
                     print("time used %.2f" % (time.time() - start_time))
                 continue
-            decoder_loss, retrieval_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, word_neg_num, entity_neg_num = \
-                run(model, data, config, word2id, entity2id)
-            sentence_ppx_loss += torch.sum(sentence_ppx).data
-            sentence_ppx_word_loss += torch.sum(sentence_ppx_word).data
-            sentence_ppx_local_loss += torch.sum(sentence_ppx_local).data
-            word_cut += word_neg_num
-            local_cut += entity_neg_num
+            else:
+                decoder_loss, retrieval_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, word_neg_num, entity_neg_num = \
+                    run(model, data, config, word2id, entity2id)
+                sentence_ppx_loss += torch.sum(sentence_ppx).data
+                sentence_ppx_word_loss += torch.sum(sentence_ppx_word).data
+                sentence_ppx_local_loss += torch.sum(sentence_ppx_local).data
+                word_cut += word_neg_num
+                local_cut += entity_neg_num
 
-            model_optimizer.zero_grad()
-            loss = decoder_loss + retrieval_loss
-            loss.backward()
-            torch.nn.utils.clip_grad_norm(model.parameters(), config.max_gradient_norm)
-            model_optimizer.step()
-            writer.add_scalar('train_loss/decoding_loss', decoder_loss.data, count)
-            writer.add_scalar('train_loss/retrieval_loss', retrieval_loss.data, count)
-            if count % 50 == 0:
-                print ("iteration:", iteration, "decode loss:", decoder_loss.data, "retr loss:", retrieval_loss.data)
-                print("time used: %ds" % (time.time() - start_time))
-                with open(config.log_dir, 'a') as f:
-                    f.write("iteration: %d decode loss: %.4f retr loss: %.4f total loss: %.4f\n" %
-                            (iteration, decoder_loss.data, retrieval_loss.data, loss.data))
+                model_optimizer.zero_grad()
+                loss = decoder_loss + retrieval_loss
+                loss.backward()
+                torch.nn.utils.clip_grad_norm(model.parameters(), config.max_gradient_norm)
+                model_optimizer.step()
+                writer.add_scalar('train_loss/decoding_loss', decoder_loss.data, count)
+                writer.add_scalar('train_loss/retrieval_loss', retrieval_loss.data, count)
+                if count % 50 == 0:
+                    print ("iteration:", iteration, "decode loss:", decoder_loss.data, "retr loss:", retrieval_loss.data)
+                    print("time used: %ds" % (time.time() - start_time))
+                    with open(config.log_dir, 'a') as f:
+                        f.write("iteration: %d decode loss: %.4f retr loss: %.4f total loss: %.4f\n" %
+                                (iteration, decoder_loss.data, retrieval_loss.data, loss.data))
             if count % 20000 == 0:
                 eval_count += 1
                 evaluate(model, data_test, config, word2id, entity2id, eval_count, writer)
@@ -136,6 +137,8 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
             ppx_f.write("epoch " + str(epoch + 1) + " ppx: " + str(ppx) + " ppx_word: " + str(ppx_word) + " ppx_entity: " + \
                 str(ppx_entity) + '\n')
             ppx_f.close()
+        else:
+            evaluate(model, data_test, config, word2id, entity2id, eval_count, writer)
 
 
 def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_test=False, model_path=None):
