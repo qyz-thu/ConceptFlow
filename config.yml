@@ -19,10 +19,10 @@ fact_scale: 1
 beam_search_width: 200
 max_hop: 2
 max_candidate_size: 50
-result_dir_name: "./result1.txt"
-model_save_name: "./model"
-generated_text_name: "./generated_text"
-log_dir: "./log1.txt"
+result_dir_name: "../result1.txt"
+model_save_name: "../model"
+generated_text_name: "../generated_text"
+log_dir: "../log1.txt"
 tensorboard_path: "../test"
 to_generate: False
 decode: False
