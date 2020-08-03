@@ -146,6 +146,7 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
     train_graph_node = []
     train_graph_edges = []
     match_entity = np.full((len(data), decoder_len), -1, dtype=int)
+    RelatedToId = entity2id['RelatedTo']
 
     def padding(sent, l):
         return sent + ['_EOS'] + ['_PAD'] * (l - len(sent) - 1)
@@ -213,16 +214,21 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                             new_nodes = [x for x in [path[0]] + candidate]
                             graph_node.append(new_nodes)
                             head, tail = [], []
+                            edge_index = []
                             for j in range(len(new_nodes)):
                                 n1 = new_nodes[j]
                                 head.append(all_nodes[n1])
                                 tail.append(all_nodes[n1])
+                                edge_index.append(RelatedToId)
                                 for k in range(j + 1, len(new_nodes)):
                                     n2 = new_nodes[k]
                                     if n1 in adj_table[n2]:
                                         head += [all_nodes[n1], all_nodes[n2]]
                                         tail += [all_nodes[n2], all_nodes[n1]]
+                                        eid = adj_table[n2][n1]
+                                        edge_index += [eid, eid]
                             graph_edges.append([head, tail])
+                            path_relation.append(edge_index)
                             path_candidate.append([all_nodes[e] for e in [path[0]] + candidate])
                             path_output_mask.append([1] * (len(candidate) + 1) + [0] * (max_candidate_size - len(candidate) - 1))
                         elif i < len(path):
@@ -233,23 +239,27 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                                 candidate = candidate[:max_candidate_size - 2]
                             candidate += [0]
                             new_nodes = [x for x in [ground_truth_ent] + candidate if x not in all_nodes]
-                            relation = [adj_table[path[i-1]][e] if e != 0 else entity2id['RelatedTo'] for e in new_nodes]
+                            # relation = [adj_table[path[i-1]][e] if e != 0 else entity2id['RelatedTo'] for e in new_nodes]
                             graph_node.append(new_nodes)
                             for node in new_nodes:
                                 all_nodes[node] = len(all_nodes)
                             head, tail = [], []
+                            edge_index = []
                             for n1 in new_nodes:
                                 head.append(all_nodes[n1])
                                 tail.append(all_nodes[n1])
+                                edge_index.append(RelatedToId)
                                 for n2 in all_nodes:
                                     if n1 == n2:
                                         break
                                     if n1 in adj_table[n2]:
                                         head += [all_nodes[n1], all_nodes[n2]]
                                         tail += [all_nodes[n2], all_nodes[n1]]
+                                        eid = adj_table[n2][n1]
+                                        edge_index += [eid, eid]
                             graph_edges.append([head, tail])
                             path_candidate.append([all_nodes[e] for e in [ground_truth_ent] + candidate])
-                            path_relation.append(relation)
+                            path_relation.append(edge_index)
                             path_output_mask.append([1] * (len(candidate) + 1) + [0] * (max_candidate_size - len(candidate) - 1))
                         else:
                             path_output_mask.append([0] * max_candidate_size)
@@ -262,7 +272,8 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                     for j in range(len(graph_node)):
                         if j == 0:
                             continue
-                        assert len(graph_node[j]) == len(path_relation[j-1])
+                    for i, edges in enumerate(graph_edges):
+                        assert len(edges[0]) == len(path_relation[i])
 
                     graph_input_tmp.append(path_candidate)
                     graph_relation_tmp.append(path_relation)

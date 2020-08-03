@@ -228,8 +228,8 @@ class ConceptFlow(nn.Module):
         else:
             subgraph, edges, subgraph_len = [], [], []
             match_entity = [[] for bs in range(batch_size)]
+            RelatedToId = entity2id['RelatedTo']
             for b in range(batch_size):
-
                 for t in range(self.max_hop + 1):
                     if t == 0:  # select zero-hop
                         graph_context = text_encoder_state[self.layers-2: self.layers-1, b: b+1, :].transpose(0, 1)
@@ -240,22 +240,28 @@ class ConceptFlow(nn.Module):
                         graph = dgl.DGLGraph()
                         head, tail = [], []
                         all_nodes = dict()
+                        edge_index = []
                         for node in post_ent[b]:
                             all_nodes[node] = len(all_nodes)
                         for i in range(len(post_ent[b])):
                             n1 = post_ent[b][i]
                             head.append(all_nodes[n1])
                             tail.append(all_nodes[n1])
+                            edge_index.append(RelatedToId)
                             for j in range(i + 1, len(all_nodes)):
                                 n2 = post_ent[b][j]
                                 if n1 in self.adj_table[n2]:
                                     head += [all_nodes[n1], all_nodes[n2]]
                                     tail += [all_nodes[n2], all_nodes[n1]]
+                                    e_id = self.adj_table[n2][n1]
+                                    edge_index += [e_id, e_id]
                         graph.add_nodes(len(post_ent[b]))
                         graph.add_edges(head, tail)
 
-                        candidate_embed = self.entity_embedding(use_cuda(torch.LongTensor(post_ent[b])))
-                        gat_output = self.GAT(graph, candidate_embed).squeeze() # (N, trans_units), N is the size of candidates
+                        node_embed = self.entity_embedding(use_cuda(torch.LongTensor(post_ent[b])))
+                        edge_embed = self.entity_embedding(use_cuda(torch.LongTensor(edge_index)))
+                        graph.edata['h'] = edge_embed
+                        gat_output = self.RGAT(graph, node_embed).squeeze() # (N, trans_units), N is the size of candidates
 
                         logits = torch.matmul(gat_output, self.graph_prob_linear(graph_output.squeeze())).reshape([-1]) # (N)
                         logits += self.bias
@@ -291,7 +297,7 @@ class ConceptFlow(nn.Module):
                     for i, e in enumerate(next_ent):
                         if e != 0 and e != 1:
                             candidates = [x for x in self.adj_table[e] if x not in all_paths[i]] + [0] # global index of candidates
-                            relations = [self.adj_table[e][x] if x != 0 else entity2id['RelatedTo'] for x in candidates]
+                            # relations = [self.adj_table[e][x] if x != 0 else entity2id['RelatedTo'] for x in candidates]
                             path_candidates += [all_paths[i] + [x] for x in candidates]
                             graph_nodes = all_paths[i] + candidates
                             all_nodes = dict()
@@ -300,6 +306,7 @@ class ConceptFlow(nn.Module):
                             graph = dgl.DGLGraph()
                             graph.add_nodes(len(graph_nodes))
                             head, tail = [], []
+                            edge_index = []
                             for j in range(len(graph_nodes)):
                                 n1 = graph_nodes[j]
                                 head.append(all_nodes[n1])
@@ -309,12 +316,13 @@ class ConceptFlow(nn.Module):
                                     if n1 in self.adj_table[n2]:
                                         head += [all_nodes[n1], all_nodes[n2]]
                                         tail += [all_nodes[n1], all_nodes[n2]]
+                                        e_id = self.adj_table[n2][n1]
+                                        edge_index += [e_id, e_id]
                             graph.add_edges(head, tail)
-                            previous_embed = self.entity_embedding(use_cuda(torch.LongTensor(all_paths[i])))
-                            node_embed = self.entity_embedding(use_cuda(torch.LongTensor(candidates)))
-                            rel_embed = self.entity_embedding(use_cuda(torch.LongTensor(relations)))
-                            new_embed = self.relation_linear(torch.cat([node_embed, rel_embed], dim=1))
-                            gat_output = self.GAT(graph, torch.cat([previous_embed, new_embed], dim=0))
+                            node_embed = self.entity_embedding(use_cuda(torch.LongTensor(graph_nodes)))
+                            edge_embed = self.entity_embedding(use_cuda(torch.LongTensor(edge_index)))
+                            graph.edata['h'] = edge_embed
+                            gat_output = self.RGAT(graph, node_embed)
                             candidates_local = [all_nodes[x] for x in candidates]   # local index of candidates
                             candidate_embed = gat_output[candidates_local].squeeze()
 
@@ -616,6 +624,7 @@ class ConceptFlow(nn.Module):
                 edge_index_global = []      # global index of edges
                 for l in range(len(batch_node)):
                     node_index += batch_node[l]
+                    edge_index_global += batch_relation[l]
                     node_embed = self.entity_embedding(use_cuda(torch.LongTensor(node_index)))
                     edge_embed = self.entity_embedding(use_cuda(torch.LongTensor(edge_index_global)))
                     edge_index_local[0] += batch_edge[l][0]
@@ -636,7 +645,7 @@ class ConceptFlow(nn.Module):
             for p in b:
                 path_input = use_cuda(torch.empty(0))
                 for l in p:
-                    node_feature = graph_list[index].ndata['h'][l].transpose(0, 1)   # (1, N, trans_units)
+                    node_feature = graph_list[index].ndata['h'][l].unsqueeze(0)   # (1, N, trans_units)
                     N = node_feature.shape[1]
                     padded_feature = torch.cat([node_feature, use_cuda(torch.zeros([1, max_candidate_size - N, self.trans_units]))], dim=1)
                     path_input = torch.cat([path_input, padded_feature], dim=0)
