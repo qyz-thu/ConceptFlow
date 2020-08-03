@@ -311,6 +311,7 @@ class ConceptFlow(nn.Module):
                                 n1 = graph_nodes[j]
                                 head.append(all_nodes[n1])
                                 tail.append(all_nodes[n1])
+                                edge_index.append(RelatedToId)
                                 for k in range(j + 1, len(graph_nodes)):
                                     n2 = graph_nodes[k]
                                     if n1 in self.adj_table[n2]:
