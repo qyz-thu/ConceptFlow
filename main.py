@@ -144,6 +144,9 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
 
 
 def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_test=False, model_path=None):
+    print('eval time %d' % epoch)
+    with open(config.log_dir, 'a') as f:
+        f.write("eval time %d\n" % epoch)
     eval_start_time = time.time()
     if model_path:
         model.load_state_dict(torch.load(model_path))
