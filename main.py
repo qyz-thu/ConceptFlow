@@ -92,6 +92,8 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
                 if count % 50 == 0:
                     print("iteration: %d, loss: %.4f" % (iteration, retrieval_loss.data))
                     print("time used %.2f" % (time.time() - start_time))
+                    with open(config.log_dir, 'a') as f:
+                        f.write("iteration: %d loss: %.4f time used: %.2f\n" % (iteration, retrieval_loss.data, time.time() - start_time))
                 continue
             else:
                 decoder_loss, retrieval_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, word_neg_num, entity_neg_num = \
@@ -190,6 +192,8 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_tes
             total_graph_size += graph_size / config.batch_size
             if count % 50 == 0:
                 print('iteration for evaluate: %d time used: %.2f' % (count, time.time() - eval_start_time))
+                with open(config.log_dir, 'a') as f:
+                    f.write('iteration for evaluate: %d time used: %.2f\n' % (count, time.time() - eval_start_time))
             continue
         decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, word_neg_num, entity_neg_num, recall, precision, graph_size, word_index = \
             run(model, data, config, word2id, entity2id, model.is_inference)
