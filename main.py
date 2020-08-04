@@ -94,6 +94,11 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
                     print("time used %.2f" % (time.time() - start_time))
                     with open(config.log_dir, 'a') as f:
                         f.write("iteration: %d loss: %.4f time used: %.2f\n" % (iteration, retrieval_loss.data, time.time() - start_time))
+                if count % 20000 == 0:
+                    eval_count += 1
+                    recall, precision, graph_size = evaluate(model, data_test, config, word2id, entity2id, eval_count, writer)
+                    with open(config.result_dir_name, 'a') as f:
+                        f.write("recall: %.4f, precision: %.4f, graph size: %.4f" % (recall, precision, graph_size))
                 continue
             else:
                 decoder_loss, retrieval_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, word_neg_num, entity_neg_num = \
@@ -117,9 +122,6 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
                     with open(config.log_dir, 'a') as f:
                         f.write("iteration: %d decode loss: %.4f retr loss: %.4f total loss: %.4f\n" %
                                 (iteration, decoder_loss.data, retrieval_loss.data, loss.data))
-            if count % 20000 == 0:
-                eval_count += 1
-                evaluate(model, data_test, config, word2id, entity2id, eval_count, writer)
 
         if config.decode:
             ppl = np.exp(sentence_ppx_loss.cpu() / len(data_train))
@@ -140,7 +142,9 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
                 str(ppx_entity) + '\n')
             ppx_f.close()
         else:
-            evaluate(model, data_test, config, word2id, entity2id, eval_count, writer)
+            recall, precision, graph_size = evaluate(model, data_test, config, word2id, entity2id, eval_count, writer)
+            with open(config.result_dir_name, 'a') as f:
+                f.write("recall: %.4f, precision: %.4f, graph size: %.4f" % (recall, precision, graph_size))
 
 
 def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_test=False, model_path=None):
@@ -244,10 +248,12 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_tes
         return np.exp(sentence_ppx_loss.cpu() / len(data_test)), np.exp(sentence_ppx_word_loss.cpu() / (len(data_test) - int(word_cut))), \
             np.exp(sentence_ppx_local_loss.cpu() / (len(data_test) - int(local_cut))), entity_recall
     else:
+        with open(config.log_dir, 'a') as f:
+            f.write("recall: %.4f, precision: %.4f, graph size: %.4f" % (entity_recall, entity_precision, total_graph_size))
         writer.add_scalar('graph_recall', entity_recall, epoch)
         writer.add_scalar('graph/precision', entity_precision, epoch)
         writer.add_scalar('graph/graph_size', total_graph_size, epoch)
-        return
+        return entity_recall, entity_precision, total_graph_size
 
 
 def main():
