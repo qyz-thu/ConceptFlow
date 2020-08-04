@@ -138,6 +138,9 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
 
 
 def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_test=False, model_path=None):
+    print('eval time %d' % epoch)
+    with open(config.log_dir, 'a') as f:
+        f.write('eval time %d\n' % epoch)
     eval_start_time = time.time()
     if model_path:
         model.load_state_dict(torch.load(model_path))
@@ -186,6 +189,8 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_tes
             total_graph_size += graph_size / config.batch_size
             if count % 50 == 0:
                 print('iteration for evaluate: %d time used: %.2f' % (count, time.time() - eval_start_time))
+                with open(config.log_dir, 'a') as f:
+                    f.write('iteration for evaluate: %d time used: %.2f\n' % (count, time.time() - eval_start_time))
             continue
         decoder_loss, sentence_ppx, sentence_ppx_word, sentence_ppx_local, word_neg_num, entity_neg_num, recall, precision, graph_size, word_index = \
             run(model, data, config, word2id, entity2id, model.is_inference)
@@ -233,9 +238,11 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_tes
         return np.exp(sentence_ppx_loss.cpu() / len(data_test)), np.exp(sentence_ppx_word_loss.cpu() / (len(data_test) - int(word_cut))), \
             np.exp(sentence_ppx_local_loss.cpu() / (len(data_test) - int(local_cut))), entity_recall
     else:
-        writer.add_scalar('graph_recall', entity_recall, epoch)
+        writer.add_scalar('graph/recall', entity_recall, epoch)
         writer.add_scalar('graph/precision', entity_precision, epoch)
         writer.add_scalar('graph/graph_size', total_graph_size, epoch)
+        with open(config.log_dir, 'a') as f:
+            f.write("recall: %.4f  precision: %.4f  graph size: %.4f\n" % (entity_recall, entity_precision, total_graph_size))
         return
 
 
