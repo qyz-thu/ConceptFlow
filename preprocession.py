@@ -23,7 +23,7 @@ def prepare_data(config):
     if config.is_train:
         with open('%s/trainset4bs1M.txt' % config.data_dir) as f:
             for idx, line in enumerate(f):
-                if idx == 99999: break
+                # if idx == 99999: break
 
                 if idx % 100000 == 0:
                     print('read train file line %d' % idx)

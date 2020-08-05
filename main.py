@@ -60,7 +60,6 @@ class Config():
 
 def run(model, data_train, config, word2id, entity2id, is_inference=False):
     batched_data = gen_batched_data(data_train, config, word2id, entity2id, is_inference)
-
     return model(batched_data)
 
 
@@ -111,7 +110,7 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
             writer.add_scalar('train_loss/decoding_loss', decoder_loss.data, count)
             writer.add_scalar('train_loss/retrieval_loss', retrieval_loss.data, count)
             if count % 50 == 0:
-                print ("iteration:", iteration, "decode loss:", decoder_loss.data, "retr loss:", retrieval_loss.data)
+                print("iteration:", iteration, "decode loss:", decoder_loss.data, "retr loss:", retrieval_loss.data)
                 print("time used: %ds" % (time.time() - start_time))
                 with open(config.log_dir, 'a') as f:
                     f.write("iteration: %d decode loss: %.4f retr loss: %.4f total loss: %.4f\n" %
@@ -264,7 +263,7 @@ def main():
         print("no gpu with sufficient memory currently.")
         sys.exit(0)
     print("Running on device %d" % device_index)
-    os.environ['CUDA_VISIBLE_DEVICES'] = str(device_index)
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
     config = Config('config.yml')
     config.list_all_member()
