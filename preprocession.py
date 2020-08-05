@@ -23,7 +23,7 @@ def prepare_data(config):
     if config.is_train:
         with open('%s/_trainset4bs.txt' % config.data_dir) as f:
             for idx, line in enumerate(f):
-                if idx == 499999: break
+                if idx == 500000: break
 
                 if idx % 100000 == 0:
                     print('read train file line %d' % idx)
@@ -31,7 +31,7 @@ def prepare_data(config):
     
     with open('%s/_testset4bs.txt' % config.data_dir) as f:
         for i, line in enumerate(f):
-            # if i == 499: break
+            # if i == 50: break
             data_test.append(json.loads(line))
     
     return raw_vocab, data_train, data_test

@@ -1,5 +1,6 @@
 import json
 import time
+import random
 
 adj_table = dict()
 data_dir = "../ConceptFlow/data/data/"
@@ -282,6 +283,102 @@ def process4():
             f_w.write(json.dumps(data) + '\n')
 
 
+def process5():
+    """
+    pre-compute graph for every step in training sample
+    may generate training file of enormous size
+    """
+    with open(data_dir + '_trainset4bs.txt') as f:
+        for line in f:
+            data = json.loads(line)
+            # max_path_len = data['max_path_len']
+            paths = data['paths']
+            max_candidate_size = data['max_candidate_size']
+            graph_input_tmp = []
+            graph_relation_tmp = []
+            output_mask_tmp = []
+            path_len_tmp = []
+            graph_node_tmp = []
+            graph_edge_tmp = []
+            zero_hop = data['post_ent']
+            for path in paths:
+                path += [0]
+                path_len_tmp.append(len(path))
+                path_candidate = []
+                path_relation = []
+                path_output_mask = []
+                graph_node = []
+                graph_edges = []
+                all_nodes = dict()
+                for i in range(len(path)):
+                    if i == 0:
+                        candidate = [e for e in zero_hop if e != path[0]]
+                        if len(candidate) > max_candidate_size - 2:
+                            random.shuffle(candidate)
+                            candidate = candidate[:max_candidate_size - 2]
+                        candidate += [0]  # add the EOP token
+                        if path[0] not in all_nodes:
+                            all_nodes[path[0]] = len(all_nodes)
+                        for c in candidate:
+                            if c not in all_nodes:
+                                all_nodes[c] = len(all_nodes)
+
+                        new_nodes = [x for x in [path[0]] + candidate]
+                        graph_node.append(new_nodes)
+                        head, tail = [], []
+                        for j in range(len(new_nodes)):
+                            n1 = new_nodes[j]
+                            head.append(all_nodes[n1])
+                            tail.append(all_nodes[n1])
+                            for k in range(j + 1, len(new_nodes)):
+                                n2 = new_nodes[k]
+                                if n1 in adj_table[n2]:
+                                    head += [all_nodes[n1], all_nodes[n2]]
+                                    tail += [all_nodes[n2], all_nodes[n1]]
+                        graph_edges.append([head, tail])
+                        path_candidate.append([all_nodes[e] for e in [path[0]] + candidate])
+                        path_output_mask.append([1] * (len(candidate) + 1) + [0] * (max_candidate_size - len(candidate) - 1))
+                    else:
+                        ground_truth_ent = path[i]  # 0 is the EOP token
+                        candidate = [e for e in adj_table[path[i - 1]] if e != ground_truth_ent]
+                        if len(candidate) > max_candidate_size - 2:
+                            random.shuffle(candidate)
+                            candidate = candidate[:max_candidate_size - 2]
+                        candidate += [0]
+                        new_nodes = [x for x in [ground_truth_ent] + candidate if x not in all_nodes]
+                        relation = [adj_table[path[i - 1]][e] if e != 0 else entity2id['RelatedTo'] for e in new_nodes]
+                        graph_node.append(new_nodes)
+                        for node in new_nodes:
+                            all_nodes[node] = len(all_nodes)
+                        head, tail = [], []
+                        for n1 in new_nodes:
+                            head.append(all_nodes[n1])
+                            tail.append(all_nodes[n1])
+                            for n2 in all_nodes:
+                                if n1 == n2:
+                                    break
+                                if n1 in adj_table[n2]:
+                                    head += [all_nodes[n1], all_nodes[n2]]
+                                    tail += [all_nodes[n2], all_nodes[n1]]
+                        graph_edges.append([head, tail])
+                        path_candidate.append([all_nodes[e] for e in [ground_truth_ent] + candidate])
+                        path_relation.append(relation)
+                        path_output_mask.append([1] * (len(candidate) + 1) + [0] * (max_candidate_size - len(candidate) - 1))
+                graph_input_tmp.append(path_candidate)
+                graph_relation_tmp.append(path_relation)
+                output_mask_tmp.append(path_output_mask)
+                graph_node_tmp.append(graph_node)
+                graph_edge_tmp.append(graph_edges)
+            data['graph_input'] = graph_input_tmp
+            data['graph_relation'] = graph_relation_tmp
+            data['output_mask'] = output_mask_tmp
+            data['graph_nodes'] = graph_node_tmp
+            data['graph_edges'] = graph_edge_tmp
+            data['path_len'] = path_len_tmp
+            with open(data_dir + '__trainset.txt', 'a') as f_w:
+                f_w.write(json.dumps(data) + '\n')
+
+
 def main():
     global entity_list, entity2id
     entity_list = ['_NONE', '_PAD_H', '_PAD_R', '_PAD_T', '_NAF_H', '_NAF_R', '_NAF_T']
@@ -291,6 +388,9 @@ def main():
             e = line.strip()
             entity2id[e] = len(entity_list)
             entity_list.append(e)
+    with open(data_dir + 'relation.txt') as f:
+        for line in f:
+            entity2id[line.strip()] = len(entity2id)
     with open(data_dir + 'resource.txt') as f:
         d = json.loads(f.readline())
     csk_triples = d['csk_triples']
@@ -298,21 +398,23 @@ def main():
     # get adjacent table
     print("get adjacency table")
     for i in range(len(entity_list)):
-        adj_table[i] = set()
+        adj_table[i] = dict()
     for triple in csk_triples:
         t = triple.split(',')
         sbj = t[0]
         obj = t[2][1:]
-        if sbj not in entity_list or obj not in entity_list:
+        rel = t[1][1:]
+        if sbj not in entity2id or obj not in entity2id or rel not in entity2id:
             continue
         id1 = entity2id[sbj]
         id2 = entity2id[obj]
-        adj_table[id1].add(id2)
-        adj_table[id2].add(id1)
+        rel = entity2id[rel]
+        adj_table[id1][id2] = rel
+        adj_table[id2][id1] = rel
     print("done!")
 
-    process4()
+    process5()
     # process_train('trainset.txt', 'trainset4bs_full.txt')
 
 
-# main()
+main()
