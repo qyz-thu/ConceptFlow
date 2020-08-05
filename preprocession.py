@@ -21,16 +21,17 @@ def prepare_data(config):
     data_train, data_test = [], []
 
     if config.is_train:
-        with open('%s/trainset4bs1M.txt' % config.data_dir) as f:
+        with open('%s/_trainset4bs.txt' % config.data_dir) as f:
             for idx, line in enumerate(f):
-                # if idx == 99999: break
+                if idx == 499999: break
 
                 if idx % 100000 == 0:
                     print('read train file line %d' % idx)
                 data_train.append(json.loads(line))
     
     with open('%s/_testset4bs.txt' % config.data_dir) as f:
-        for line in f:
+        for i, line in enumerate(f):
+            # if i == 499: break
             data_test.append(json.loads(line))
     
     return raw_vocab, data_train, data_test

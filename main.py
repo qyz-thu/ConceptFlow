@@ -263,7 +263,7 @@ def main():
         print("no gpu with sufficient memory currently.")
         sys.exit(0)
     print("Running on device %d" % device_index)
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(device_index)
 
     config = Config('config.yml')
     config.list_all_member()
