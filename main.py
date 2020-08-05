@@ -123,6 +123,7 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
                         f.write("iteration: %d decode loss: %.4f retr loss: %.4f total loss: %.4f\n" %
                                 (iteration, decoder_loss.data, retrieval_loss.data, loss.data))
 
+        torch.save(model.state_dict(), config.model_save_name + '_epoch_' + str(epoch + 1) + '.pkl')
         if config.decode:
             ppl = np.exp(sentence_ppx_loss.cpu() / len(data_train))
             word_ppl = np.exp(sentence_ppx_word_loss.cpu() / (len(data_train) - int(word_cut)))
@@ -134,9 +135,8 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
             with open(config.log_dir, 'a') as f:
                 f.write("perplexity for epoch%d: %.2f word ppl: %.2f entity ppl: %.2f\n" % (epoch + 1, ppl, word_ppl, entity_ppl))
 
-            # torch.save(model.state_dict(), config.model_save_name + '_epoch_' + str(epoch + 1) + '.pkl')
             ppx, ppx_word, ppx_entity, recall = evaluate(model, data_test, config, word2id, entity2id, epoch + 1, writer)
-            ppx_f = open(config.result_dir_name,'a')
+            ppx_f = open(config.result_dir_name, 'a')
             ppx_f.write("test entity recall for epoch %d: %.4f\n" % (epoch + 1, recall))
             ppx_f.write("epoch " + str(epoch + 1) + " ppx: " + str(ppx) + " ppx_word: " + str(ppx_word) + " ppx_entity: " + \
                 str(ppx_entity) + '\n')
@@ -144,7 +144,7 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
         else:
             recall, precision, graph_size = evaluate(model, data_test, config, word2id, entity2id, eval_count, writer)
             with open(config.result_dir_name, 'a') as f:
-                f.write("recall: %.4f, precision: %.4f, graph size: %.4f" % (recall, precision, graph_size))
+                f.write("recall: %.4f, precision: %.4f, graph size: %.4f\n" % (recall, precision, graph_size))
 
 
 def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_test=False, model_path=None):
@@ -249,7 +249,7 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_tes
             np.exp(sentence_ppx_local_loss.cpu() / (len(data_test) - int(local_cut))), entity_recall
     else:
         with open(config.log_dir, 'a') as f:
-            f.write("recall: %.4f, precision: %.4f, graph size: %.4f" % (entity_recall, entity_precision, total_graph_size))
+            f.write("recall: %.4f, precision: %.4f, graph size: %.4f\n" % (entity_recall, entity_precision, total_graph_size))
         writer.add_scalar('graph_recall', entity_recall, epoch)
         writer.add_scalar('graph/precision', entity_precision, epoch)
         writer.add_scalar('graph/graph_size', total_graph_size, epoch)
