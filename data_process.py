@@ -4,6 +4,7 @@ import time
 adj_table = dict()
 data_dir = "../ConceptFlow/data/data/"
 beamsearch_size = 100
+backup_dir = "../../../home3/qianyingzhuo/conceptflow_data/"
 
 
 def get_path(post_ent, res_ent):
@@ -47,25 +48,6 @@ def get_path(post_ent, res_ent):
 
 
 def process_train():
-    with open(data_dir + 'resource.txt') as f:
-        d = json.loads(f.readline())
-    csk_triples = d['csk_triples']
-    id2entity = d['csk_entities']
-
-    # get adjacent table
-    for i in range(len(entity_list)):
-        adj_table[i] = set()
-    for triple in csk_triples:
-        t = triple.split(',')
-        sbj = t[0]
-        obj = t[2][1:]
-        if sbj not in entity_list or obj not in entity_list:
-            continue
-        id1 = entity2id[sbj]
-        id2 = entity2id[obj]
-        adj_table[id1].add(id2)
-        adj_table[id2].add(id1)
-
     start_time = time.time()
     f_w = open(data_dir + '_testset4bs.txt', 'w')
     # log = open(data_dir + 'checklist.txt', 'w')
@@ -96,50 +78,8 @@ def process_train():
                 for pp in p:
                     if len(pp) > 3:
                         continue
-                        memo['long_path'].append(pp)
-                        if len(pp) == 4:
-                            three_hop += 1
-                        elif len(pp) == 5:
-                            four_hop += 1
-                        else:
-                            five_hop += 1
                     subgraph.append(pp)
-            if len(memo['long_path']) > 0:
-                memo['id'] = i
-                log.write(json.dumps(memo) + '\n')
 
-            # subgraph = [set(post_ent), set(), set(), set(), set(), set()]  # 0-5 hop entities
-            # for p in path:
-            #     for pp in p:
-            #         prior = None
-            #         for i, e in enumerate(pp):
-            #             if i == 0:
-            #                 prior = e
-            #                 continue
-            #             if id2entity[e] in entity_list:
-            #                 subgraph[i].add(e)
-            #             if prior:
-            #                 head = max(prior, e)
-            #                 tail = prior + e - head
-            #                 if head in edge_in_path:
-            #                     edge_in_path[head].add(tail)
-            #                 else:
-            #                     edge_in_path[head] = {tail}
-            #             prior = e
-            # subgraph = [list(g)[:beamsearch_size] for g in subgraph]
-            # edges = list()
-            # all_nodes = list()
-            # for hop in subgraph:
-            #     for ent in hop:
-            #         all_nodes.append(ent)
-            # for i in range(len(all_nodes)):
-            #     for j in range(i + 1, len(all_nodes)):
-            #         if all_nodes[j] in adj_table[all_nodes[i]]:
-            #             edges.append([all_nodes[i], all_nodes[j]])
-            # path_edges = []
-            # for node in edge_in_path:
-            #     for tail in edge_in_path[node]:
-            #         path_edges.append([node, tail])
             n_data = {'post': data['post'], 'response': data['response'], 'post_ent': post_ent, 'response_ent': response_ent,
                       'paths': subgraph,
                       # 'graph_edges': edges, 'path_edges': path_edges
@@ -167,17 +107,11 @@ def process_test():
             f_w.write(json.dumps(n_data) + '\n')
 
 
-def main():
-    global entity_list, entity2id
-    entity_list = ['_NONE', '_PAD_H', '_PAD_R', '_PAD_T', '_NAF_H', '_NAF_R', '_NAF_T']
-    entity2id = dict()
-    with open(data_dir + 'entity.txt') as f:
-        for i, line in enumerate(f):
-            e = line.strip()
-            entity2id[e] = len(entity_list)
-            entity_list.append(e)
-    process_train()
-    with open(data_dir + '_testset4bs.txt') as f:
+def process1():
+    """
+    Add 'subgraph' & 'edges' field according to 'paths'
+    """
+    with open(data_dir + 'testset4bs.txt') as f:
         datas = f.readlines()
     with open(data_dir + '_testset4bs.txt', 'w') as f:
         for data in datas:
@@ -205,6 +139,104 @@ def main():
             data['subgraph'] = subgraph
             data['edges'] = edges
             f.write(json.dumps(data) + '\n')
+
+
+def process6():
+    """
+    generate files with full two-hop concepts for filtering
+    """
+
+    with open(data_dir + 'trainset.txt') as f:
+        for i, line in enumerate(f):
+            if i < 14691: continue
+            if i % 1000 == 0:
+                print("processed %d lines" % i)
+            if i == 338400: break
+            data = json.loads(line)
+            post = data['post']
+            new_data = {'post': post, 'response': data['response']}
+            response_ent = [-1 for j in range(len(data['response']))]
+            for j, w in enumerate(data['response']):
+                if w in entity2id:
+                    response_ent[j] = entity2id[w]
+
+            subgraph = set()
+            zero_hop = set()
+            for i, e in enumerate(data['post_triples']):
+                if e > 0:
+                    zero_hop.add(entity2id[post[i]])
+            subgraph |= zero_hop
+            one_hop = set([entity2id[csk_entities[e]] for e in data['all_entities_one_hop'] if csk_entities[e] in entity2id])
+            subgraph |= one_hop
+            # two_hop = set()
+            # get two hop concepts
+            for oh in one_hop:
+                for e in adj_table[oh]:
+                    if e not in subgraph:
+                        subgraph.add(e)
+            subgraph = list(subgraph)
+            # print("subgraph size: %d" % len(subgraph))
+            new_data['subgraph'] = subgraph
+            head, tail = [], []
+            for i in range(len(subgraph)):
+                head.append(i)
+                tail.append(i)
+                for j in range(i + 1, len(subgraph)):
+                    if subgraph[i] in adj_table[subgraph[j]]:
+                        head += [i, j]
+                        tail += [j, i]
+            new_data['edges'] = [head, tail]
+            with open(backup_dir + 'trainset_filter.txt', 'a') as f_w:
+                f_w.write(json.dumps(new_data) + '\n')
+
+
+def main():
+    global entity_list, entity2id, csk_entities
+    entity_list = ['_NONE', '_PAD_H', '_PAD_R', '_PAD_T', '_NAF_H', '_NAF_R', '_NAF_T']
+    entity2id = dict()
+    with open(data_dir + 'entity.txt') as f:
+        for i, line in enumerate(f):
+            e = line.strip()
+            entity2id[e] = len(entity_list)
+            entity_list.append(e)
+    with open(data_dir + 'relation.txt') as f:
+        for line in f:
+            entity2id[line.strip()] = len(entity2id)
+    with open(data_dir + 'resource.txt') as f:
+        d = json.loads(f.readline())
+    csk_entities = d['csk_entities']
+    kb_dict = d['dict_csk']
+
+    # get adjacent table
+    print("get adjacency table")
+    for i in range(len(entity_list)):
+        adj_table[i] = set()
+    for e in kb_dict:
+        id1 = entity2id[e]
+        for triple in kb_dict[e]:
+            tokens = triple.split(',')
+            sbj = tokens[0]
+            obj = tokens[2][1:]
+            if sbj not in entity2id or obj not in entity2id:
+                continue
+            id2 = entity2id[sbj] + entity2id[obj] - id1
+            adj_table[id1].add(id2)
+    print('done!')
+
+    # process_train()
+    # process6()
+    f_w = open(data_dir + '__trainset_filter.txt', 'a')
+    with open(data_dir + 'trainset_filter.txt') as f:
+        for i, line in enumerate(f):
+            if i % 1000 == 0:
+                print("processed", i)
+            data = json.loads(line)
+            response_ent = [-1 for _ in range(len(data['response']))]
+            for j, w in enumerate(data['response']):
+                if w in entity2id:
+                    response_ent[j] = entity2id[w]
+            data['response_ent'] = response_ent
+            f_w.write(json.dumps(data) + '\n')
 
 
 main()

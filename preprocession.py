@@ -20,7 +20,7 @@ def prepare_data(config):
     data_train, data_test = [], []
 
     if config.is_train:
-        with open('%s/__trainset4bs.txt' % config.data_dir) as f:
+        with open(config.data_dir + '/__trainset_filter.txt') as f:
             for idx, line in enumerate(f):
                 if idx == 99999: break
 
@@ -28,7 +28,7 @@ def prepare_data(config):
                     print('read train file line %d' % idx)
                 data_train.append(json.loads(line))
     
-    with open('%s/_testset4bs.txt' % config.data_dir) as f:
+    with open('%s/testset_filter.txt' % config.data_dir) as f:
         for line in f:
             data_test.append(json.loads(line))
     
@@ -36,6 +36,7 @@ def prepare_data(config):
 
 
 def build_vocab(path, raw_vocab, config, trans='transE'):
+    global adj_table
     print("Creating word vocabulary...")
     vocab_list = ['_PAD', '_GO', '_EOS', '_UNK', ] + sorted(raw_vocab, key=raw_vocab.get, reverse=True)
     if len(vocab_list) > config.symbols:
@@ -59,16 +60,16 @@ def build_vocab(path, raw_vocab, config, trans='transE'):
     for i, e in enumerate(entity_list):
         entity2id[e] = i
         adj_table[i] = set()
-    for triple in csk_triples:
-        t = triple.split(',')
-        sbj = t[0]
-        obj = t[2][1:]
-        if sbj not in entity_list or obj not in entity_list:
-            continue
-        id1 = entity2id[sbj]
-        id2 = entity2id[obj]
-        adj_table[id1].add(id2)
-        adj_table[id2].add(id1)
+    for e in kb_dict:
+        id1 = entity2id[e]
+        for triple in kb_dict[e]:
+            tokens = triple.split(',')
+            sbj = tokens[0]
+            obj = tokens[2][1:]
+            if sbj not in entity2id or obj not in entity2id:
+                continue
+            id2 = entity2id[sbj] + entity2id[obj] - id1
+            adj_table[id1].add(id2)
 
     print("Loading word vectors...")
     vectors = {}
@@ -123,7 +124,7 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
 
     encoder_len = max([len(item['post']) for item in data]) + 1
     decoder_len = max([len(item['response']) for item in data]) + 1
-    entity_len = max([len(item['paths']) for item in data])
+    # entity_len = max([len(item['paths']) for item in data])
     posts_id = np.full((len(data), encoder_len), 0, dtype=int)  # todo: change to np.zeros?
     responses_id = np.full((len(data), decoder_len), 0, dtype=int)
     post_ent = []
@@ -132,7 +133,6 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
     responses_length = []
     subgraph = []
     subgraph_length = []
-    paths = []
     edges = []
     match_entity = np.full((len(data), decoder_len), -1, dtype=int)
 
@@ -161,26 +161,28 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
         responses_length.append(len(item['response']) + 1)
 
         # post&response entities
-        post_ent.append(item['post_ent'])
-        post_ent_len.append(len(item['post_ent']))
+        # post_ent.append(item['post_ent'])
+        # post_ent_len.append(len(item['post_ent']))
         response_ent.append(item['response_ent'] + [-1 for j in range(decoder_len - len(item['response_ent']))])
-
-        # ground-truth path
-        for i in range(len(item['paths'])):
-            item['paths'][i].append(0)
-        paths.append(item['paths'])
 
         # if not is_inference:
         subgraph_tmp = item['subgraph']
         subgraph_len_tmp = len(subgraph_tmp)
-        # subgraph_tmp += [1] * (entity_len - len(subgraph_tmp))
-        # for i in range(len(subgraph_tmp)):
-        #     subgraph_len_tmp.append(len(subgraph_tmp[i]))
-        #     subgraph_tmp[i] += [1] * (beamsearch_width - len(subgraph_tmp[i]))
         subgraph.append(subgraph_tmp)
         subgraph_length.append(subgraph_len_tmp)
 
-        edges.append(item['edges'])
+        if 'edges' in item:
+            edges.append(item['edges'])
+        else:
+            head, tail = [], []
+            for i in range(len(subgraph_tmp)):
+                head.append(i)
+                tail.append(i)
+                for j in range(i + 1, len(subgraph_tmp)):
+                    if subgraph_tmp[i] in adj_table[subgraph_tmp[j]]:
+                        head += [i, j]
+                        tail += [j, i]
+            edges.append([head, tail])
 
         g2l = dict()
         for i in range(len(subgraph_tmp)):
@@ -200,7 +202,7 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                     'response_text': np.array(responses_id),
                     'subgraph': np.array(subgraph),
                     'subgraph_size': subgraph_length,
-                    'paths': paths,
+                    # 'paths': paths,
                     'edges': edges,
                     'responses_length': responses_length,
                     'post_ent': post_ent,
