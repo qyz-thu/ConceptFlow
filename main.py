@@ -238,11 +238,12 @@ def main():
     if config.to_filter:
         model.load_state_dict(torch.load('./model_epoch_5.pkl'))
         filter(model, data_test, config, word2id, entity2id)
+        exit()
 
     model_optimizer = torch.optim.Adam(model.parameters(), lr=config.lr_rate)
     writer = SummaryWriter(config.tb_path)
 
-    ppx_f = open(config.result_dir_name,'a')
+    ppx_f = open(config.result_dir_name, 'a')
     for name, value in vars(config).items():
         ppx_f.write('%s = %s' % (name, value) + '\n')
 
