@@ -50,6 +50,8 @@ class Config():
         self.generated_text_name = config['generated_text_name']
         self.beam_search_width = config['beam_search_width']
         self.max_hop = config['max_hop']
+        self.to_filter = config['to_filter']
+        self.filter_result_dir = config['filter_result_dir']
 
     def list_all_member(self):
         for name, value in vars(self).items():
@@ -194,6 +196,19 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_tes
     return ppl, word_ppl, entity_ppl
 
 
+def filter(model, data_test, config, word2id, entity2id):
+    iter_time = len(data_test) // config.batch_size
+    for iteration in range(iter_time):
+        data = data_test[(iteration * config.batch_size):(iteration * config.batch_size + config.batch_size)]
+        filtered_two_hop = run(model, data, config, word2id, entity2id)
+        with open(config.filter_result_dir, 'a') as f:
+            for two_hop in filtered_two_hop:
+                d = {'two_hop': two_hop}
+                f.write(json.dumps(d) + '\n')
+        if (iteration + 1) % 50 == 0:
+            print('filtered %d samples' % (iteration + 1))
+
+
 def main():
     # choose gpu with sufficient memory
     pynvml.nvmlInit()
@@ -220,6 +235,9 @@ def main():
     word2id, entity2id, vocab, embed, entity_vocab, entity_embed, relation_vocab, relation_embed, entity_relation_embed, adj_table \
         = build_vocab(config.data_dir, raw_vocab, config=config)
     model = use_cuda(ConceptFlow(config, embed, entity_relation_embed, adj_table))
+    if config.to_filter:
+        model.load_state_dict(torch.load('./model_epoch_5.pkl'))
+        filter(model, data_test, config, word2id, entity2id)
 
     model_optimizer = torch.optim.Adam(model.parameters(), lr=config.lr_rate)
     writer = SummaryWriter(config.tb_path)

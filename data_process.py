@@ -145,10 +145,8 @@ def process6():
     """
     generate files with full two-hop concepts for filtering
     """
-
-    with open(data_dir + 'trainset.txt') as f:
+    with open(data_dir + 'testset.txt') as f:
         for i, line in enumerate(f):
-            if i < 14691: continue
             if i % 1000 == 0:
                 print("processed %d lines" % i)
             if i == 338400: break
@@ -168,25 +166,28 @@ def process6():
             subgraph |= zero_hop
             one_hop = set([entity2id[csk_entities[e]] for e in data['all_entities_one_hop'] if csk_entities[e] in entity2id])
             subgraph |= one_hop
+            center_size = len(subgraph)
             # two_hop = set()
             # get two hop concepts
             for oh in one_hop:
                 for e in adj_table[oh]:
                     if e not in subgraph:
                         subgraph.add(e)
+            outer_size = len(subgraph) - center_size
             subgraph = list(subgraph)
             # print("subgraph size: %d" % len(subgraph))
             new_data['subgraph'] = subgraph
-            head, tail = [], []
-            for i in range(len(subgraph)):
-                head.append(i)
-                tail.append(i)
-                for j in range(i + 1, len(subgraph)):
-                    if subgraph[i] in adj_table[subgraph[j]]:
-                        head += [i, j]
-                        tail += [j, i]
-            new_data['edges'] = [head, tail]
-            with open(backup_dir + 'trainset_filter.txt', 'a') as f_w:
+            # head, tail = [], []
+            # for i in range(len(subgraph)):
+            #     head.append(i)
+            #     tail.append(i)
+            #     for j in range(i + 1, len(subgraph)):
+            #         if subgraph[i] in adj_table[subgraph[j]]:
+            #             head += [i, j]
+            #             tail += [j, i]
+            # new_data['edges'] = [head, tail]
+            new_data['outer_size'] = outer_size
+            with open(data_dir + '_testset_filter.txt', 'a') as f_w:
                 f_w.write(json.dumps(new_data) + '\n')
 
 
@@ -224,19 +225,7 @@ def main():
     print('done!')
 
     # process_train()
-    # process6()
-    f_w = open(data_dir + '__trainset_filter.txt', 'a')
-    with open(data_dir + 'trainset_filter.txt') as f:
-        for i, line in enumerate(f):
-            if i % 1000 == 0:
-                print("processed", i)
-            data = json.loads(line)
-            response_ent = [-1 for _ in range(len(data['response']))]
-            for j, w in enumerate(data['response']):
-                if w in entity2id:
-                    response_ent[j] = entity2id[w]
-            data['response_ent'] = response_ent
-            f_w.write(json.dumps(data) + '\n')
+    process6()
 
 
 main()

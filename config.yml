@@ -18,8 +18,10 @@ fact_scale: 1
 pagerank_lambda: 0.8
 beam_search_width: 10
 max_hop: 3
-result_dir_name: "result.txt"
+result_dir_name: "result1.txt"
 model_save_name: "model"
 generated_text_name: "generated_text"
-log_dir: "log.txt"
+log_dir: "log1.txt"
 tensorboard_path: "./filter"
+to_filter: True
+filter_result_dir: '../ConceptFlow/data/data/filtered_ent'

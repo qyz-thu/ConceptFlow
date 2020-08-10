@@ -20,15 +20,15 @@ def prepare_data(config):
     data_train, data_test = [], []
 
     if config.is_train:
-        with open(config.data_dir + '/__trainset_filter.txt') as f:
+        with open(config.data_dir + '/_trainset_filter.txt') as f:
             for idx, line in enumerate(f):
-                # if idx == 99999: break
+                if idx == 1: break
 
                 if idx % 100000 == 0:
                     print('read train file line %d' % idx)
                 data_train.append(json.loads(line))
     
-    with open('%s/testset_filter.txt' % config.data_dir) as f:
+    with open('%s/_testset_filter.txt' % config.data_dir) as f:
         for line in f:
             data_test.append(json.loads(line))
     
@@ -120,7 +120,7 @@ def build_vocab(path, raw_vocab, config, trans='transE'):
     return word2id, entity2id, vocab_list, embed, entity_list, entity_embed, relation_list, relation_embed, entity_embed, adj_table
 
 
-def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
+def gen_batched_data(data, config, word2id, entity2id, is_inference=False, is_filter=False):
     global csk_entities, csk_triples, kb_dict, dict_csk_entities, dict_csk_triples
 
     encoder_len = max([len(item['post']) for item in data]) + 1
@@ -135,6 +135,7 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
     subgraph = []
     subgraph_length = []
     edges = []
+    two_hop_size = []
     match_entity = np.full((len(data), decoder_len), -1, dtype=int)
 
     def padding(sent, l):
@@ -160,17 +161,14 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
 
         # responses_length
         responses_length.append(len(item['response']) + 1)
+        # response_ent.append(item['response_ent'] + [-1 for j in range(decoder_len - len(item['response_ent']))])
 
-        # post&response entities
-        # post_ent.append(item['post_ent'])
-        # post_ent_len.append(len(item['post_ent']))
-        response_ent.append(item['response_ent'] + [-1 for j in range(decoder_len - len(item['response_ent']))])
-
-        # if not is_inference:
         subgraph_tmp = item['subgraph']
         subgraph_len_tmp = len(subgraph_tmp)
         subgraph.append(subgraph_tmp)
         subgraph_length.append(subgraph_len_tmp)
+
+        two_hop_size.append(item['outer_size'])
 
         if 'edges' in item:
             edges.append(item['edges'])
@@ -185,17 +183,17 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                         tail += [j, i]
             edges.append([head, tail])
 
-        g2l = dict()
-        for i in range(len(subgraph_tmp)):
-            g2l[subgraph_tmp[i]] = i
-
-        for i in range(len(item['response_ent'])):
-            if item['response_ent'][i] == -1:
-                continue
-            if item['response_ent'][i] not in g2l:
-                continue
-            else:
-                match_entity[next_id, i] = g2l[item['response_ent'][i]]
+        # g2l = dict()
+        # for i in range(len(subgraph_tmp)):
+        #     g2l[subgraph_tmp[i]] = i
+        #
+        # for i in range(len(item['response_ent'])):
+        #     if item['response_ent'][i] == -1:
+        #         continue
+        #     if item['response_ent'][i] not in g2l:
+        #         continue
+        #     else:
+        #         match_entity[next_id, i] = g2l[item['response_ent'][i]]
 
         next_id += 1
 
@@ -203,8 +201,8 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                     'response_text': np.array(responses_id),
                     'subgraph': np.array(subgraph),
                     'subgraph_size': subgraph_length,
-                    # 'paths': paths,
                     'edges': edges,
+                    'two_hop_size': two_hop_size,
                     'responses_length': responses_length,
                     'post_ent': post_ent,
                     'post_ent_len': post_ent_len,
