@@ -4,7 +4,7 @@ embed_units: 300
 symbols: 30000
 units: 512
 layers: 2
-batch_size: 5
+batch_size: 50
 data_dir: "../ConceptFlow/data/data"
 num_epoch: 20
 lr_rate: 0.0001
@@ -22,4 +22,4 @@ result_dir_name: "result.txt"
 model_save_name: "model"
 generated_text_name: "generated_text"
 log_dir: "log.txt"
-tensorboard_path: "./test"
+tensorboard_path: "./filter"

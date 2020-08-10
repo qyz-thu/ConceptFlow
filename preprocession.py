@@ -22,7 +22,7 @@ def prepare_data(config):
     if config.is_train:
         with open(config.data_dir + '/__trainset_filter.txt') as f:
             for idx, line in enumerate(f):
-                if idx == 99999: break
+                # if idx == 99999: break
 
                 if idx % 100000 == 0:
                     print('read train file line %d' % idx)
@@ -98,16 +98,17 @@ def build_vocab(path, raw_vocab, config, trans='transE'):
             s = line.strip().split('\t')
             entity_embed.append(s)
 
-    print("Loading relation vectors...")
-    relation_embed = []
-    with open('%s/relation_%s.txt' % (path, trans)) as f:
-        for i, line in enumerate(f):
-            s = line.strip().split('\t')
-            relation_embed.append(s)
+    # print("Loading relation vectors...")
+    # relation_embed = []
+    # with open('%s/relation_%s.txt' % (path, trans)) as f:
+    #     for i, line in enumerate(f):
+    #         s = line.strip().split('\t')
+    #         relation_embed.append(s)
 
-    entity_relation_embed = np.array(entity_embed + relation_embed, dtype=np.float32)
+    # entity_relation_embed = np.array(entity_embed + relation_embed, dtype=np.float32)
     entity_embed = np.array(entity_embed, dtype=np.float32)
-    relation_embed = np.array(relation_embed, dtype=np.float32)
+    # relation_embed = np.array(relation_embed, dtype=np.float32)
+    relation_embed, entity_relation_embed = [], []
 
     word2id = dict()
     entity2id = dict()
@@ -116,7 +117,7 @@ def build_vocab(path, raw_vocab, config, trans='transE'):
     for entity in entity_list + relation_list:
         entity2id[entity] = len(entity2id)
 
-    return word2id, entity2id, vocab_list, embed, entity_list, entity_embed, relation_list, relation_embed, entity_relation_embed, adj_table
+    return word2id, entity2id, vocab_list, embed, entity_list, entity_embed, relation_list, relation_embed, entity_embed, adj_table
 
 
 def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
