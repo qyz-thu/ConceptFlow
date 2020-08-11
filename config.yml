@@ -24,4 +24,4 @@ generated_text_name: "generated_text"
 log_dir: "log1.txt"
 tensorboard_path: "./filter"
 to_filter: True
-filter_result_dir: '../ConceptFlow/data/data/filtered_ent'
+filter_result_dir: '../ConceptFlow/data/data/filtered_ent_random'

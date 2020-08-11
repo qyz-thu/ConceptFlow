@@ -135,7 +135,8 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False, is_fi
     subgraph = []
     subgraph_length = []
     edges = []
-    two_hop_size = []
+    central_size = []
+    outer_size = []
     match_entity = np.full((len(data), decoder_len), -1, dtype=int)
 
     def padding(sent, l):
@@ -163,12 +164,15 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False, is_fi
         responses_length.append(len(item['response']) + 1)
         # response_ent.append(item['response_ent'] + [-1 for j in range(decoder_len - len(item['response_ent']))])
 
-        subgraph_tmp = item['subgraph']
+        if 'subgraph' in item:
+            subgraph_tmp = item['subgraph']
+        else:
+            subgraph_tmp = item['central_graph'] + item['outer_graph']
+            central_size.append(len(item['central_graph']))
+            outer_size.append(len(item['outer_graph']))
         subgraph_len_tmp = len(subgraph_tmp)
         subgraph.append(subgraph_tmp)
         subgraph_length.append(subgraph_len_tmp)
-
-        two_hop_size.append(item['outer_size'])
 
         if 'edges' in item:
             edges.append(item['edges'])
@@ -183,18 +187,6 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False, is_fi
                         tail += [j, i]
             edges.append([head, tail])
 
-        # g2l = dict()
-        # for i in range(len(subgraph_tmp)):
-        #     g2l[subgraph_tmp[i]] = i
-        #
-        # for i in range(len(item['response_ent'])):
-        #     if item['response_ent'][i] == -1:
-        #         continue
-        #     if item['response_ent'][i] not in g2l:
-        #         continue
-        #     else:
-        #         match_entity[next_id, i] = g2l[item['response_ent'][i]]
-
         next_id += 1
 
     batched_data = {'post_text': np.array(posts_id),
@@ -202,7 +194,8 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False, is_fi
                     'subgraph': np.array(subgraph),
                     'subgraph_size': subgraph_length,
                     'edges': edges,
-                    'two_hop_size': two_hop_size,
+                    'central_size': central_size,
+                    'outer_size': outer_size,
                     'responses_length': responses_length,
                     'post_ent': post_ent,
                     'post_ent_len': post_ent_len,

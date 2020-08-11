@@ -141,6 +141,72 @@ def process1():
             f.write(json.dumps(data) + '\n')
 
 
+def process2():
+    """
+    count the recall and precision of conceptflow graph
+    """
+    response_ent = []
+    recall = 0
+    precision = 0
+    total_graph_size = 0
+    one_recall = 0
+    one_precision = 0
+    two_recall = 0
+    with open(data_dir + 'testset4bs.txt') as f:
+        for i, line in enumerate(f):
+            data = json.loads(line)
+            res_ent = set()
+            for j in data['response_ent']:
+                if j > 0:
+                    res_ent.add(j)
+            response_ent.append(res_ent)
+    count = 0
+    with open(data_dir + 'testset.txt') as f:
+        for i, line in enumerate(f):
+            res_ent = response_ent[i]
+            if len(res_ent) == 0:
+                continue
+            data = json.loads(line)
+            graph = set()
+            # add zero hop
+            post = data['post']
+            for j, index in enumerate(data['post_triples']):
+                if index > 0:
+                    ent = post[j]
+                    if ent not in entity2id:
+                        continue
+                    graph.add(entity2id[ent])
+            # add one hop
+            for oh in data['all_entities_one_hop']:
+                if csk_entities[oh] in entity2id:
+                    graph.add(entity2id[csk_entities[oh]])
+            one_hit = len(graph & res_ent)
+            one_recall += one_hit / len(res_ent)
+            one_precision += one_hit / len(graph)
+            # add two hop
+            two_hop = set()
+            for th in data['only_two']:
+                if csk_entities[th] in entity2id:
+                    graph.add(entity2id[csk_entities[th]])
+                    two_hop.add(entity2id[csk_entities[th]])
+            graph_size = len(graph)
+            total_graph_size += graph_size
+            hit = len(graph & res_ent)
+            precision += hit / graph_size
+            recall += hit / len(res_ent)
+            two_recall += len(two_hop & res_ent) / len(res_ent)
+            count += 1
+    precision /= count
+    recall /= count
+    total_graph_size /= count
+    one_recall /= count
+    one_precision /= count
+    two_recall /= count
+    print("precision: %.4f recall: %.4f graph size: %.4f" % (precision, recall, total_graph_size))
+    print('one hop precision: %.4f recall: %.4f' % (one_precision, one_recall))
+    print('two hop recall: %.4f' % two_recall)
+
+
 def process6():
     """
     generate files with full two-hop concepts for filtering
@@ -149,7 +215,7 @@ def process6():
         for i, line in enumerate(f):
             if i % 1000 == 0:
                 print("processed %d lines" % i)
-            if i == 338400: break
+            # if i == 338400: break
             data = json.loads(line)
             post = data['post']
             new_data = {'post': post, 'response': data['response']}
@@ -163,20 +229,20 @@ def process6():
             for i, e in enumerate(data['post_triples']):
                 if e > 0:
                     zero_hop.add(entity2id[post[i]])
-            subgraph |= zero_hop
             one_hop = set([entity2id[csk_entities[e]] for e in data['all_entities_one_hop'] if csk_entities[e] in entity2id])
-            subgraph |= one_hop
-            center_size = len(subgraph)
-            # two_hop = set()
+            central_graph = zero_hop | one_hop
+            two_hop = set()
             # get two hop concepts
             for oh in one_hop:
                 for e in adj_table[oh]:
-                    if e not in subgraph:
-                        subgraph.add(e)
-            outer_size = len(subgraph) - center_size
+                    if e not in central_graph:
+                        two_hop.add(e)
+            outer_size = len(two_hop)
             subgraph = list(subgraph)
             # print("subgraph size: %d" % len(subgraph))
-            new_data['subgraph'] = subgraph
+            # new_data['subgraph'] = subgraph
+            new_data['central_graph'] = list(central_graph)
+            new_data['outer_graph'] = list(two_hop)
             # head, tail = [], []
             # for i in range(len(subgraph)):
             #     head.append(i)
@@ -189,6 +255,66 @@ def process6():
             new_data['outer_size'] = outer_size
             with open(data_dir + '_testset_filter.txt', 'a') as f_w:
                 f_w.write(json.dumps(new_data) + '\n')
+
+
+def process7():
+    """
+    calculate the recall of gat-filtered graph
+    """
+    response_ent = []
+    recall = 0
+    count = 0
+    central_recall = 0
+    outer_recall = 0
+    with open(data_dir + 'testset4bs.txt') as f:
+        for line in f:
+            data = json.loads(line)
+            res_ent = set()
+            for e in data['response_ent']:
+                if e > 0:
+                    res_ent.add(e)
+            response_ent.append(res_ent)
+    central_graph = []
+    with open(data_dir + 'testset.txt') as f:
+        for i, line in enumerate(f):
+            res_ent = response_ent[i]
+            if len(res_ent) == 0:
+                central_graph.append([])
+                continue
+            data = json.loads(line)
+            graph = set()
+            # add zero hop
+            post = data['post']
+            for j, index in enumerate(data['post_triples']):
+                if index > 0:
+                    ent = post[j]
+                    if ent not in entity2id:
+                        continue
+                    graph.add(entity2id[ent])
+            # add one hop
+            for oh in data['all_entities_one_hop']:
+                if csk_entities[oh] in entity2id:
+                    graph.add(entity2id[csk_entities[oh]])
+            central_graph.append(graph)
+    with open(data_dir + 'filtered_ent_random') as f:
+        for i, line in enumerate(f):
+            res_ent = response_ent[i]
+            if len(res_ent) == 0:
+                continue
+            data = json.loads(line)
+            central = central_graph[i]
+            chit = len(central & res_ent)
+            central_recall += chit / len(res_ent)
+            two_hop = set(data['two_hop'])
+            graph = two_hop | central
+            hit = len(res_ent & graph)
+            recall += hit / len(res_ent)
+            outer_recall += len(two_hop & res_ent) / len(res_ent)
+            count += 1
+    recall /= count
+    central_recall /= count
+    outer_recall /= count
+    print('recall for filtered two-hop: %.4f %.4f %.4f' % (recall, central_recall, outer_recall))
 
 
 def main():
@@ -225,7 +351,7 @@ def main():
     print('done!')
 
     # process_train()
-    process6()
+    process7()
 
 
 main()

@@ -236,7 +236,7 @@ def main():
         = build_vocab(config.data_dir, raw_vocab, config=config)
     model = use_cuda(ConceptFlow(config, embed, entity_relation_embed, adj_table))
     if config.to_filter:
-        model.load_state_dict(torch.load('./model_epoch_5.pkl'))
+        model.load_state_dict(torch.load('./model_epoch_7.pkl'))
         filter(model, data_test, config, word2id, entity2id)
         exit()
 

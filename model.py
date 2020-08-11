@@ -6,6 +6,7 @@ import torch.nn as nn
 from torch.nn import utils as nn_utils
 import dgl
 from dgl.nn import GATConv
+import random
 
 VERY_SMALL_NUMBER = 1e-10
 VERY_NEG_NUMBER = -100000000000
@@ -101,7 +102,8 @@ class ConceptFlow(nn.Module):
         match_entity = batch_data['match_entity']
         # paths = batch_data['paths']
         edges = batch_data['edges']
-        two_hop_size = batch_data['two_hop_size']
+        central_size = batch_data['central_size']
+        outer_size = batch_data['outer_size']
 
 
         if self.is_inference == True:
@@ -187,8 +189,8 @@ class ConceptFlow(nn.Module):
         if self.filter:
             two_hop = []
             for b in range(batch_size):
-                all_two_hop = subgraph[b][-two_hop_size[b]:]
-                prob = ce_alignments[b, :, subgraph_len[b] - two_hop_size[b]: subgraph_len[b]].transpose(0, 1)
+                all_two_hop = subgraph[b][-outer_size[b]:]  # todo: rewrite
+                prob = ce_alignments[b, :, subgraph_len[b] - outer_size[b]: subgraph_len[b]].transpose(0, 1)
                 prob = torch.sum(prob, dim=1).detach().cpu().numpy().tolist()
                 sorted_prob = [[i, prob[i]] for i in range(len(prob))]
                 sorted_prob.sort(key=lambda x: x[1], reverse=True)
