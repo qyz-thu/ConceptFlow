@@ -264,6 +264,8 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                         if j == 0:
                             continue
                         assert len(graph_node[j]) == len(path_relation[j-1])
+                    for i, edges in graph_edges:
+                        assert len(edges[0]) == len(path_relation[i])
 
                     graph_input_tmp.append(path_candidate)
                     graph_relation_tmp.append(path_relation)
