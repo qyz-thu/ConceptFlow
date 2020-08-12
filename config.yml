@@ -24,4 +24,4 @@ generated_text_name: "generated_text"
 log_dir: "log.txt"
 tensorboard_path: "./test"
 to_generate: False
-decode: False
+decode: True

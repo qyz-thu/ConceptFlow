@@ -21,7 +21,7 @@ def prepare_data(config):
     data_train, data_test = [], []
 
     if config.is_train:
-        with open('%s/_trainset4bs.txt' % config.data_dir) as f:
+        with open('%s/trainset4bs.txt' % config.data_dir) as f:
             for idx, line in enumerate(f):
                 if idx == 500000: break
 
@@ -264,8 +264,6 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False):
                         if j == 0:
                             continue
                         assert len(graph_node[j]) == len(path_relation[j-1])
-                    for i, edges in graph_edges:
-                        assert len(edges[0]) == len(path_relation[i])
 
                     graph_input_tmp.append(path_candidate)
                     graph_relation_tmp.append(path_relation)
