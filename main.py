@@ -170,7 +170,7 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_tes
         word_cut += word_neg_num
         local_cut += entity_neg_num
 
-        write_batch_res_text(word_index, id2word)
+        # write_batch_res_text(word_index, id2word)
 
         writer.add_scalar('test_loss/', decoder_loss.data, count)
         if count % 50 == 0:
@@ -236,17 +236,16 @@ def main():
         = build_vocab(config.data_dir, raw_vocab, config=config)
     model = use_cuda(ConceptFlow(config, embed, entity_relation_embed, adj_table))
     if config.to_filter:
-        model.load_state_dict(torch.load('./model_epoch_7.pkl'))
+        model.load_state_dict(torch.load('./g3_model_epoch_8.pkl'))
         filter(model, data_test, config, word2id, entity2id)
         exit()
 
     model_optimizer = torch.optim.Adam(model.parameters(), lr=config.lr_rate)
     writer = SummaryWriter(config.tb_path)
 
-    ppx_f = open(config.result_dir_name, 'a')
-    for name, value in vars(config).items():
-        ppx_f.write('%s = %s' % (name, value) + '\n')
-
+    # ppx_f = open(config.result_dir_name,'a')
+    # for name, value in vars(config).items():
+    #     ppx_f.write('%s = %s' % (name, value) + '\n')
     if not config.is_train:
         evaluate(model, data_test, config, word2id, entity2id, 0, writer, model_path=config.test_model_path)
         exit() 

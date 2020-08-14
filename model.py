@@ -20,18 +20,21 @@ def use_cuda(var):
 
 
 class GAT(nn.Module):
-	def __init__(self, features):
-		super(GAT, self).__init__()
-		self.gat1 = GATConv(in_feats=features, out_feats=features, num_heads=1)
-		self.gat2 = GATConv(in_feats=features, out_feats=features, num_heads=1)
+    def __init__(self, features):
+        super(GAT, self).__init__()
+        self.gat1 = GATConv(in_feats=features, out_feats=features, num_heads=1)
+        self.gat2 = GATConv(in_feats=features, out_feats=features, num_heads=1)
+        self.gat3 = GATConv(in_feats=features, out_feats=features, num_heads=1)
 
-	def forward(self, g, inputs):
-		if g.number_of_edges() == 0:
-			return inputs
-		h = self.gat1(g, inputs)
-		h = torch.relu(h)
-		h = self.gat2(g, h)
-		return h
+    def forward(self, g, inputs):
+        if g.number_of_edges() == 0:
+            return inputs
+        h = self.gat1(g, inputs)
+        h = torch.relu(h)
+        h = self.gat2(g, h)
+        h = torch.relu(h)
+        h = self.gat3(g, h)
+        return h
 
 
 class ConceptFlow(nn.Module):

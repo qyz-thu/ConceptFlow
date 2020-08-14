@@ -296,7 +296,7 @@ def process7():
                 if csk_entities[oh] in entity2id:
                     graph.add(entity2id[csk_entities[oh]])
             central_graph.append(graph)
-    with open(data_dir + 'filtered_ent_random') as f:
+    with open(data_dir + 'g3_filtered_ent') as f:
         for i, line in enumerate(f):
             res_ent = response_ent[i]
             if len(res_ent) == 0:
