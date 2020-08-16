@@ -11,6 +11,7 @@ import os
 import pynvml
 import sys
 import time
+from pathlib import Path
 warnings.filterwarnings('ignore')
 
 csk_triples, csk_entities, kb_dict = [], [], []
@@ -40,6 +41,7 @@ class Config():
         self.max_gradient_norm = config['max_gradient_norm']
         self.trans_units = config['trans_units']
         self.gnn_layers = config['gnn_layers']
+        self.num_head = config['num_head']
         self.fact_dropout = config['fact_dropout']
         self.fact_scale = config['fact_scale']
         self.pagerank_lambda = config['pagerank_lambda']
@@ -47,6 +49,7 @@ class Config():
         self.log_dir = config['log_dir']
         self.tb_path = config['tensorboard_path']
         self.model_save_name = config['model_save_name']
+        self.model_load_dir = config['model_load_dir']
         self.generated_text_name = config['generated_text_name']
         self.beam_search_width = config['beam_search_width']
         self.max_hop = config['max_hop']
@@ -91,7 +94,7 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
             decoder_loss.backward()
             torch.nn.utils.clip_grad_norm(model.parameters(), config.max_gradient_norm)
             model_optimizer.step()
-            writer.add_scalar('train_loss', decoder_loss.data, count)
+            # writer.add_scalar('train_loss', decoder_loss.data, count)
             if count % 50 == 0:
                 print("iteration:", iteration, "decode loss:", decoder_loss.data)
                 print("time used: %ds" % (time.time() - start_time))
@@ -101,9 +104,9 @@ def train(config, model, data_train, data_test, word2id, entity2id, model_optimi
         ppl = np.exp(sentence_ppx_loss.cpu() / len(data_train))
         word_ppl = np.exp(sentence_ppx_word_loss.cpu() / (len(data_train) - int(word_cut)))
         entity_ppl = np.exp(sentence_ppx_local_loss.cpu() / (len(data_train) - int(local_cut)))
-        writer.add_scalar('train_ppl/ppl', ppl, epoch + 1)
-        writer.add_scalar('train_ppl/word_ppl', word_ppl, epoch + 1)
-        writer.add_scalar('train_ppl/entitty_ppl', entity_ppl, epoch + 1)
+        # writer.add_scalar('train_ppl/ppl', ppl, epoch + 1)
+        # writer.add_scalar('train_ppl/word_ppl', word_ppl, epoch + 1)
+        # writer.add_scalar('train_ppl/entitty_ppl', entity_ppl, epoch + 1)
         print("perplexity for epoch", epoch + 1, ":", ppl, " ppx_word: ", word_ppl, " ppx_entity: ", entity_ppl)
 
         with open(config.log_dir, 'a') as f:
@@ -172,7 +175,7 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_tes
 
         # write_batch_res_text(word_index, id2word)
 
-        writer.add_scalar('test_loss/', decoder_loss.data, count)
+        # writer.add_scalar('test_loss/', decoder_loss.data, count)
         if count % 50 == 0:
             print("iteration for evaluate:", count, "loss:", decoder_loss.data, "time used: ", time.time() - eval_start_time)
     # entity_recall /= count
@@ -182,9 +185,9 @@ def evaluate(model, data_test, config, word2id, entity2id, epoch, writer, is_tes
     word_ppl = np.exp(sentence_ppx_word_loss.cpu() / (len(data_test) - int(word_cut)))
     entity_ppl = np.exp(sentence_ppx_local_loss.cpu() / (len(data_test) - int(local_cut)))
     print('perplexity on test set:', ppl, "word ppl: ", word_ppl, 'entity ppl: ', entity_ppl)
-    writer.add_scalar('test_ppl/ppl', ppl, epoch)
-    writer.add_scalar('test_ppl/word_ppl', word_ppl, epoch)
-    writer.add_scalar('test_ppl/entity_ppl', entity_ppl, epoch)
+    # writer.add_scalar('test_ppl/ppl', ppl, epoch)
+    # writer.add_scalar('test_ppl/word_ppl', word_ppl, epoch)
+    # writer.add_scalar('test_ppl/entity_ppl', entity_ppl, epoch)
 
     if model_path:
         print('perplexity on test set:', ppl, word_ppl, entity_ppl)
@@ -206,7 +209,7 @@ def filter(model, data_test, config, word2id, entity2id):
                 d = {'two_hop': two_hop}
                 f.write(json.dumps(d) + '\n')
         if (iteration + 1) % 50 == 0:
-            print('filtered %d samples' % (iteration + 1))
+            print('filtered %d samples' % (iteration + 1) * config.batch_size)
 
 
 def main():
@@ -236,7 +239,8 @@ def main():
         = build_vocab(config.data_dir, raw_vocab, config=config)
     model = use_cuda(ConceptFlow(config, embed, entity_relation_embed, adj_table))
     if config.to_filter:
-        model.load_state_dict(torch.load('./g3_model_epoch_8.pkl'))
+        assert Path(config.model_load_dir).exists()
+        model.load_state_dict(torch.load(config.model_load_dir))
         filter(model, data_test, config, word2id, entity2id)
         exit()
 

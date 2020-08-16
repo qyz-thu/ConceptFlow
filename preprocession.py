@@ -54,23 +54,6 @@ def build_vocab(path, raw_vocab, config, trans='transE'):
         for line in f:
             relation_list.append(line.strip())
 
-    print('Creating adjacency table...')
-    entity2id = dict()
-    adj_table = dict()
-    for i, e in enumerate(entity_list):
-        entity2id[e] = i
-        adj_table[i] = set()
-    for e in kb_dict:
-        id1 = entity2id[e]
-        for triple in kb_dict[e]:
-            tokens = triple.split(',')
-            sbj = tokens[0]
-            obj = tokens[2][1:]
-            if sbj not in entity2id or obj not in entity2id:
-                continue
-            id2 = entity2id[sbj] + entity2id[obj] - id1
-            adj_table[id1].add(id2)
-
     print("Loading word vectors...")
     vectors = {}
     with open('%s/glove.840B.300d.txt' % path) as f:
@@ -116,11 +99,30 @@ def build_vocab(path, raw_vocab, config, trans='transE'):
     for entity in entity_list + relation_list:
         entity2id[entity] = len(entity2id)
 
+    print('Creating adjacency table...')
+    adj_table = dict()
+    for i, e in enumerate(entity_list):
+        adj_table[i] = dict()
+    for e in kb_dict:
+        id1 = entity2id[e]
+        for triple in kb_dict[e]:
+            tokens = triple.split(',')
+            sbj = tokens[0]
+            obj = tokens[2][1:]
+            rel = tokens[1][1:]
+            if sbj not in entity2id or obj not in entity2id or rel not in entity2id:
+                continue
+            id1 = entity2id[sbj]
+            id2 = entity2id[obj]
+            rel = entity2id[rel]
+            adj_table[id1][id2] = rel
+            adj_table[id2][id1] = rel
+
     return word2id, entity2id, vocab_list, embed, entity_list, entity_embed, relation_list, relation_embed, entity_relation_embed, adj_table
 
 
 def gen_batched_data(data, config, word2id, entity2id, is_inference=False, is_filter=False):
-    global csk_entities, csk_triples, kb_dict, dict_csk_entities, dict_csk_triples
+    global csk_entities, csk_triples, kb_dict, dict_csk_entities, dict_csk_triples, adj_table
 
     encoder_len = max([len(item['post']) for item in data]) + 1
     decoder_len = max([len(item['response']) for item in data]) + 1
@@ -134,9 +136,12 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False, is_fi
     subgraph = []
     subgraph_length = []
     edges = []
+    relation_index = []
     central_size = []
     outer_size = []
     match_entity = np.full((len(data), decoder_len), -1, dtype=int)
+
+    RelatedToId = entity2id['RelatedTo']
 
     def padding(sent, l):
         return sent + ['_EOS'] + ['_PAD'] * (l - len(sent) - 1)
@@ -173,18 +178,25 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False, is_fi
         subgraph.append(subgraph_tmp)
         subgraph_length.append(subgraph_len_tmp)
 
-        if 'edges' in item:
-            edges.append(item['edges'])
-        else:
-            head, tail = [], []
-            for i in range(len(subgraph_tmp)):
-                head.append(i)
-                tail.append(i)
-                for j in range(i + 1, len(subgraph_tmp)):
-                    if subgraph_tmp[i] in adj_table[subgraph_tmp[j]]:
-                        head += [i, j]
-                        tail += [j, i]
-            edges.append([head, tail])
+        relation_index_tmp = []
+        # if 'edges' in item:
+        #     edges.append(item['edges'])
+        # else
+        head, tail = [], []
+        for i in range(len(subgraph_tmp)):
+            head.append(i)
+            tail.append(i)
+            relation_index_tmp.append(RelatedToId)
+            n1 = subgraph_tmp[i]
+            for j in range(i + 1, len(subgraph_tmp)):
+                n2 = subgraph_tmp[j]
+                if n1 in adj_table[n2]:
+                    head += [i, j]
+                    tail += [j, i]
+                    eid = adj_table[n1][n2]
+                    relation_index_tmp += [eid, eid]
+        relation_index.append(relation_index_tmp)
+        edges.append([head, tail])
 
         next_id += 1
 
@@ -195,6 +207,7 @@ def gen_batched_data(data, config, word2id, entity2id, is_inference=False, is_fi
                     'edges': edges,
                     'central_size': central_size,
                     'outer_size': outer_size,
+                    'relation_index': relation_index,
                     'responses_length': responses_length,
                     'post_ent': post_ent,
                     'post_ent_len': post_ent_len,

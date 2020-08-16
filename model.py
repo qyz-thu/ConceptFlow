@@ -3,6 +3,7 @@ import torch
 import numpy as np
 from torch.autograd import Variable
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.nn import utils as nn_utils
 import dgl
 from dgl.nn import GATConv
@@ -37,6 +38,58 @@ class GAT(nn.Module):
         return h
 
 
+class RGATLayer(nn.Module):
+    def __init__(self, node_dim, edge_dim, out_dim):
+        super(RGATLayer, self).__init__()
+        self.fc = nn.Linear(in_features=node_dim, out_features=out_dim, bias=False)
+        self.relation_fc = nn.Linear(in_features=node_dim + edge_dim, out_features=node_dim)
+        self.attn_fc = nn.Linear(in_features=2 * out_dim, out_features=1, bias=False)
+        gain = nn.init.calculate_gain('relu')
+        nn.init.xavier_normal_(self.fc.weight, gain)
+        nn.init.xavier_normal_(self.relation_fc.weight, gain)
+        nn.init.xavier_normal_(self.attn_fc.weight, gain)
+
+    def edge_attention(self, edges):
+        # edge UDF for calculating 'z' for each edge
+        end = self.relation_fc(torch.cat([edges.data['h'], edges.dst['z']], dim=1))
+        a = self.attn_fc(torch.cat([edges.src['z'], end], dim=1))
+        return {'e': F.leaky_relu(a)}
+
+    def message_func(self, edges):
+        # edge UDF propagating 'z' and coefficient 'e'
+        return {'z': edges.src['z'], 'e': edges.data['e']}
+
+    def reduce_func(self, nodes):
+        # node UDF executing weighted aggregation for output
+        alpha = F.softmax(nodes.mailbox['e'], dim=1)
+        h = torch.sum(alpha * nodes.mailbox['z'], dim=1)
+        return {'h': h}
+
+    def forward(self, g, input):
+        g.ndata['z'] = self.fc(input)
+        g.apply_edges(self.edge_attention)
+        g.update_all(self.message_func, self.reduce_func)
+        return g.ndata.pop('h')
+
+
+class RGAT(nn.Module):
+    def __init__(self, ent_dim, rel_dim, layers=1, num_head=1):
+        super(RGAT, self).__init__()
+        self.layers = nn.ModuleList()
+        for _ in range(layers):
+            heads = nn.ModuleList()
+            for __ in range(num_head):
+                heads.append(RGATLayer(ent_dim, rel_dim, ent_dim))
+            self.layers.append(heads)
+
+    def forward(self, graph, input):
+        h = input
+        for layer in self.layers:
+            head_outs = [head(graph, h) for head in layer]
+            h = torch.mean(torch.stack(head_outs), dim=0)
+        return h
+
+
 class ConceptFlow(nn.Module):
     def __init__(self, config, word_embed, entity_embed, adj_table):
         super(ConceptFlow, self).__init__()
@@ -49,6 +102,7 @@ class ConceptFlow(nn.Module):
         self.units = config.units
         self.layers = config.layers
         self.gnn_layers = config.gnn_layers
+        self.num_head = config.num_head
         self.symbols = config.symbols
         self.bs_width = config.beam_search_width
         self.max_hop = config.max_hop
@@ -87,7 +141,8 @@ class ConceptFlow(nn.Module):
         self.graph_prob_linear = nn.Linear(in_features=self.trans_units, out_features=self.units, bias=False)
 
         # GAT
-        self.GAT = GAT(self.trans_units)
+        # self.GAT = GAT(self.trans_units)
+        self.RGAT = RGAT(self.trans_units, self.trans_units, layers=self.gnn_layers, num_head=self.num_head)
 
         # Loss
         self.logits_linear = nn.Linear(in_features=self.units, out_features=self.symbols)
@@ -105,6 +160,7 @@ class ConceptFlow(nn.Module):
         match_entity = batch_data['match_entity']
         # paths = batch_data['paths']
         edges = batch_data['edges']
+        relation_index = batch_data['relation_index']
         central_size = batch_data['central_size']
         outer_size = batch_data['outer_size']
 
@@ -136,7 +192,7 @@ class ConceptFlow(nn.Module):
         max_graph_size = max(subgraph_len)
 
         # get subgraph representation
-        graph_list = self.construct_graph(subgraph, edges)
+        graph_list = self.construct_graph(subgraph, edges, relation_index)
         batched_graph = dgl.batch(graph_list)
         graph_embed = self.gnn(batched_graph, batched_graph.ndata['h'])
 
@@ -401,23 +457,22 @@ class ConceptFlow(nn.Module):
         return (use_cuda(Variable(torch.zeros(num_layer, batch_size, hidden_size))),
                 use_cuda(Variable(torch.zeros(num_layer, batch_size, hidden_size))))
 
-    def construct_graph(self, subgraphs, edges):
+    def construct_graph(self, subgraphs, edges, edge_index):
         graph_list = []
         for i in range(len(subgraphs)):
             g2l = dict()
             graph = dgl.DGLGraph()
             graph.add_nodes(len(subgraphs[i]))
-            # for index in range(len(subgraphs[i])):
-            #     g2l[subgraphs[i][index]] = index
-            # edge_heads, edge_tails = [g2l[u] for u in edges[i][0]], [g2l[u] for u in edges[i][1]]
             graph.add_edges(edges[i][0], edges[i][1])
             node_embed = self.entity_embedding(use_cuda(torch.LongTensor(subgraphs[i])))
+            edge_embed = self.entity_embedding(use_cuda(torch.LongTensor(edge_index[i])))
             graph.ndata['h'] = node_embed
+            graph.edata['h'] = edge_embed
             graph_list.append(graph)
         return graph_list
 
-    def gnn(self, graph, input):
-        gat_output = self.GAT(graph, input)
+    def gnn(self, graph, node_input):
+        gat_output = self.RGAT(graph, node_input)
         graph.ndata['h'] = gat_output
         graph_list = dgl.unbatch(graph)
 
@@ -426,44 +481,4 @@ class ConceptFlow(nn.Module):
             node_features = graph_list[i].ndata['h'].squeeze(1)
             gat_output.append(node_features)
         return nn_utils.rnn.pad_sequence(gat_output, batch_first=True, padding_value=0)
-
-    # def sparse_bmm(self, X, Y):
-    #     """Batch multiply X and Y where X is sparse, Y is dense.
-    #     Args:
-    #         X: Sparse tensor of size BxMxN. Consists of two tensors,
-    #             I:3xZ indices, and V:1xZ values.
-    #         Y: Dense tensor of size BxNxK.
-    #     Returns:
-    #         batched-matmul(X, Y): BxMxK
-    #     """
-    #     class LeftMMFixed(torch.autograd.Function):
-    #         """
-    #         Implementation of matrix multiplication of a Sparse Variable with a Dense Variable, returning a Dense one.
-    #         This is added because there's no autograd for sparse yet. No gradient computed on the sparse weights.
-    #         """
-    #
-    #         def __init__(self):
-    #             super(LeftMMFixed, self).__init__()
-    #             self.sparse_weights = None
-    #
-    #         def forward(self, sparse_weights, x):
-    #             if self.sparse_weights is None:
-    #                 self.sparse_weights = sparse_weights
-    #             return torch.mm(self.sparse_weights, x)
-    #
-    #         def backward(self, grad_output):
-    #             sparse_weights = self.sparse_weights
-    #             return None, torch.mm(sparse_weights.t(), grad_output)
-    #
-    #     I = X._indices()
-    #     V = X._values()
-    #     B, M, N = X.size()
-    #     _, _, K = Y.size()
-    #     Z = I.size()[1]
-    #     lookup = Y[I[0, :], I[2, :], :]
-    #     X_I = torch.stack((I[0, :] * M + I[1, :], use_cuda(torch.arange(Z).type(torch.LongTensor))), 0)
-    #     S = use_cuda(Variable(torch.sparse.FloatTensor(X_I, V, torch.Size([B * M, Z])), requires_grad=False))
-    #     prod_op = LeftMMFixed()
-    #     prod = prod_op(S, lookup)
-    #     return prod.view(B, M, K)
 

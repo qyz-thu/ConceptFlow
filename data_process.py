@@ -257,7 +257,7 @@ def process6():
                 f_w.write(json.dumps(new_data) + '\n')
 
 
-def process7():
+def process7(test_file_path):
     """
     calculate the recall of gat-filtered graph
     """
@@ -296,7 +296,7 @@ def process7():
                 if csk_entities[oh] in entity2id:
                     graph.add(entity2id[csk_entities[oh]])
             central_graph.append(graph)
-    with open(data_dir + 'g3_filtered_ent') as f:
+    with open(data_dir + test_file_path) as f:
         for i, line in enumerate(f):
             res_ent = response_ent[i]
             if len(res_ent) == 0:
@@ -351,7 +351,7 @@ def main():
     print('done!')
 
     # process_train()
-    process7()
+    process7('rg2_filtered_ent')
 
 
 main()

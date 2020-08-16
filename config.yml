@@ -4,7 +4,7 @@ embed_units: 300
 symbols: 30000
 units: 512
 layers: 2
-batch_size: 50
+batch_size: 10
 data_dir: "../ConceptFlow/data/data"
 num_epoch: 20
 lr_rate: 0.0001
@@ -12,7 +12,8 @@ lstm_dropout: 0.3
 linear_dropout: 0.2
 max_gradient_norm: 5
 trans_units: 100
-gnn_layers: 3
+gnn_layers: 2
+num_head: 2
 fact_dropout: 0.0
 fact_scale: 1
 pagerank_lambda: 0.8
@@ -20,8 +21,9 @@ beam_search_width: 10
 max_hop: 3
 result_dir_name: "result1.txt"
 model_save_name: "model"
+model_load_dir: 'rg2_model_epoch_1.pkl'
 generated_text_name: "generated_text"
 log_dir: "log1.txt"
 tensorboard_path: "./filter"
 to_filter: True
-filter_result_dir: '../ConceptFlow/data/data/g3_filtered_ent'
+filter_result_dir: '../ConceptFlow/data/data/rg2_filtered_ent'
